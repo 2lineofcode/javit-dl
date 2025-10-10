@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>M3U8 Downloader</title>
+		<style>
+			:root { color-scheme: dark light; }
+			html, body { background: #0b0f14; color: #e5e7eb; }
+			body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 820px; margin: 40px auto; padding: 0 16px; }
+			a { color: #93c5fd; }
+			label { display: block; margin: 12px 0 4px; }
+			input, button, fieldset { font-size: 16px; border-radius: 8px; border: 1px solid #2a3340; background: #0f1520; color: #e5e7eb; }
+			input, button { padding: 10px 12px; }
+			input[type="number"] { width: 120px; }
+			button { margin-top: 16px; background: #1f2937; border-color: #374151; cursor: pointer; }
+			button:hover { background: #111827; }
+			fieldset { padding: 12px; margin-top: 12px; border-color: #243041; }
+			.row { display: flex; gap: 8px; align-items: center; }
+			.row input { flex: 1 1 auto; }
+			.row button { margin-top: 0; }
+			.bar { height: 12px; background: #111827; border-radius: 999px; overflow: hidden; margin-top: 12px; border: 1px solid #243041; }
+			.bar > div { height: 100%; background: #60a5fa; width: 0%; transition: width 0.2s; }
+			.muted { color: #9ca3af; font-size: 14px; }
+			.hidden { display: none; }
+			.dnone { display: none; }
+			.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: none; align-items: center; justify-content: center; }
+			.modal > .card { background: #0f1520; border: 1px solid #243041; border-radius: 12px; max-width: 820px; width: 90%; max-height: 80vh; overflow: auto; padding: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); }
+			a.dir { display: block; padding: 6px 0; text-decoration: none; color: #e5e7eb; }
+		</style>
+	</head>
+	<body>
+		<h2 style="margin: 4px 0 12px;">M3U8 & File Downloader</h2>
+		<form id="f">
+			<label>URL</label>
+			<input required style="width: 100%;" type="url" name="url" placeholder="https://example.com/file.m3u8" />
+			<label>Output</label>
+			<div class="row">
+				<input type="text" name="name" placeholder="Filename (without .mp4)" />
+				<input type="text" id="folder" name="folder" placeholder="Folder (.)" />
+				<button type="button" id="browse">Browse…</button>
+			</div>
+			<fieldset id="opts">
+				<legend>Options</legend>
+				<label><input type="checkbox" name="raw" /> Raw file (skip M3U8 parsing)</label>
+				<label><input type="checkbox" name="auto" checked /> Auto select highest bandwidth</label>
+				<label>Concurrency <input type="number" name="c" min="1" max="32" value="8" /></label>
+				<label>Retries <input type="number" name="r" min="0" max="10" value="3" /></label>
+			</fieldset>
+			<div id="progress" class="hidden">
+				<div class="bar"><div id="fill"></div></div>
+				<p class="muted" id="ptext">Starting…</p>
+				<p id="plink"></p>
+			</div>
+			<div style="margin-top: 12px;"><button id="start" type="submit">Start</button></div>
+		</form>
+		<div id="modal" class="modal">
+			<div class="card">
+				<h3 style="margin-top: 0;">Select folder</h3>
+				<div style="margin: 8px 0 12px 0;"><button id="use">Use this folder</button> <button id="close">Cancel</button></div>
+				<p class="muted" id="cur"></p>
+				<div id="dirs"></div>
+			</div>
+		</div>
+		<script>
+			const f = document.getElementById("f");
+			const start = document.getElementById("start");
+			const progress = document.getElementById("progress");
+			const fill = document.getElementById("fill");
+			const ptext = document.getElementById("ptext");
+			const plink = document.getElementById("plink");
+			const folder = document.getElementById("folder");
+			const modal = document.getElementById("modal");
+			const dirs = document.getElementById("dirs");
+			const cur = document.getElementById("cur");
+			const urlInput = f.querySelector('input[name="url"]');
+			const nameInput = f.querySelector('input[name="name"]');
+			let browsePath = localStorage.getItem("pickedFolder") || "/";
+			function setDisabled(dis) { for (const el of f.elements) { el.disabled = dis; } }
+			async function postForm(fd) {
+				const usp = new URLSearchParams();
+				for (const [k, v] of fd.entries()) { usp.append(k, typeof v === "string" ? v : String(v)); }
+				const r = await fetch("/download", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: usp.toString() });
+				let payload = null; try { payload = await r.json(); } catch {}
+				if (!r.ok) { throw new Error((payload && payload.error) || "Failed to start"); }
+				return payload;
+			}
+			const opts = document.getElementById("opts");
+			function showDuringDownload(on) { if (on) { start.classList.add("dnone"); opts.classList.add("dnone"); progress.classList.remove("hidden"); } else { start.classList.remove("dnone"); opts.classList.remove("dnone"); } }
+			f.addEventListener("submit", async (e) => {
+				e.preventDefault();
+				const fd = new FormData(f);
+				setDisabled(true);
+				showDuringDownload(true);
+				ptext.textContent = "Queued";
+				plink.textContent = "";
+				fill.style.width = "0%";
+				try {
+					const { id } = await postForm(fd);
+					const pollUrl = (id) => "/status?id=" + id + "&t=" + Date.now();
+					const startPolling = (id) => {
+						const timer = setInterval(async () => {
+							try {
+								const s = await (await fetch(pollUrl(id), { cache: "no-store" })).json();
+								fill.style.width = (s.percent || 0) + "%";
+								let msg = "";
+								if (s.error) { msg = (s.phase || "") + " - error: " + s.error; }
+								else if (s.done) { msg = "Finish"; }
+								else if (s.totalSegments && s.totalSegments > 0) { const pct = Math.round(s.percent || 0); msg = "progress " + (s.completedSegments || 0) + "/" + s.totalSegments + " (" + pct + "%)"; }
+								else { msg = s.phase || ""; }
+								ptext.textContent = msg;
+								if (s.done && s.file) {
+									plink.innerHTML = "Downloaded <a href=\"/view?id=" + encodeURIComponent(id) + "\" target=\"_blank\" rel=\"noopener\">" + s.file + "</a>";
+									urlInput.value = ""; nameInput.value = "";
+									clearInterval(timer);
+									setDisabled(false); showDuringDownload(false);
+								}
+							} catch (err) { console.error(err); }
+						}, 600);
+						return timer;
+					};
+					startPolling(id);
+				} catch (err) {
+					alert("Failed: " + err.message);
+					setDisabled(false);
+					showDuringDownload(false);
+				}
+			});
+			document.getElementById("browse").addEventListener("click", async () => {
+				if (!browsePath || browsePath === ".") { try { browsePath = (await (await fetch("/api/dirs?p=" + encodeURIComponent("/"))).json()).path; } catch (e) { browsePath = "/"; } }
+				modal.style.display = "flex";
+				await loadDirs(browsePath);
+			});
+			document.getElementById("close").addEventListener("click", () => { modal.style.display = "none"; });
+			document.getElementById("use").addEventListener("click", () => { folder.value = browsePath; localStorage.setItem("pickedFolder", browsePath); modal.style.display = "none"; });
+			async function loadDirs(p) {
+				const r = await fetch("/api/dirs?p=" + encodeURIComponent(p));
+				if (!r.ok) { alert("Cannot list"); return; }
+				const d = await r.json();
+				browsePath = d.path; cur.textContent = d.path;
+				let html = "";
+				if (d.up) { html += '<a class="dir" data-path="' + d.up + '">⬆️ Up</a>'; }
+				for (const name of d.entries) { const next = d.path.endsWith("/") ? d.path + name : d.path + "/" + name; html += '<a class="dir" data-path="' + next + '">📁 ' + name + "</a>"; }
+				dirs.innerHTML = html;
+				dirs.querySelectorAll("a.dir").forEach((a) => a.addEventListener("click", async (ev) => { ev.preventDefault(); const next = a.getAttribute("data-path"); await loadDirs(next); }));
+			}
+		</script>
+	</body>
+</html>

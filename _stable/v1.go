@@ -22,6 +22,7 @@ import (
 
 // Global HTTP Client and User-Agent
 var client = &http.Client{Timeout: 30 * time.Second}
+
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" // Disguise as Chrome
 
 type KeyInfo struct {
@@ -40,17 +41,17 @@ type Segment struct {
 // NEW: WriteCounter for raw download progress
 // ==========================================
 type WriteCounter struct {
-	Total int64
+	Total      int64
 	Downloaded int64
 	LastUpdate time.Time
-	FileName string
+	FileName   string
 }
 
 // Write implements the io.Writer interface.
 func (wc *WriteCounter) Write(p []byte) (int, error) {
 	n := len(p)
 	wc.Downloaded += int64(n)
-	
+
 	// Update progress setiap 200ms atau jika sudah selesai
 	if time.Since(wc.LastUpdate) > 200*time.Millisecond || wc.Downloaded == wc.Total {
 		wc.PrintProgress()
@@ -64,22 +65,22 @@ func (wc *WriteCounter) PrintProgress() {
 		fmt.Printf("\rDownloading %s: %s downloaded...", wc.FileName, formatBytes(wc.Downloaded))
 		return
 	}
-	
+
 	pct := float64(wc.Downloaded) / float64(wc.Total) * 100
 	fmt.Printf("\rDownloading %s: %.2f%% (%s / %s)", wc.FileName, pct, formatBytes(wc.Downloaded), formatBytes(wc.Total))
 }
 
 func formatBytes(b int64) string {
-    const unit = 1024
-    if b < unit {
-        return fmt.Sprintf("%d B", b)
-    }
-    div, exp := int64(unit), 0
-    for n := b / unit; n >= unit; n /= unit {
-        div *= unit
-        exp++
-    }
-    return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // ==========================================
@@ -124,7 +125,7 @@ func main() {
 	}
 
 	start := time.Now()
-	
+
 	// ======================================
 	// RAW FILE DOWNLOAD MODE
 	// ======================================
@@ -148,7 +149,7 @@ func main() {
 	}
 
 	u, _ := url.Parse(*m3u8URL)
-	base := getBaseURL(u) 
+	base := getBaseURL(u)
 
 	// ================
 	// MASTER PLAYLIST
@@ -159,7 +160,6 @@ func main() {
 			panic("No variants found.")
 		}
 
-		
 		fmt.Printf("\nDetected %d variants:\n", len(variants))
 		for i, v := range variants {
 			fmt.Printf("  [%d] %s (BANDWIDTH=%d)\n", i, v.uri, v.bandwidth)
@@ -189,13 +189,24 @@ func main() {
 			panic(err)
 		}
 		vURL, _ := url.Parse(chosen)
-		base = getBaseURL(vURL) 
+		base = getBaseURL(vURL)
 	}
 
 	// =================
 	// MEDIA PLAYLIST
 	// =================
+	if strings.Contains(body, "#EXT-X-MAP:") {
+		fmt.Println("Detected CMAF/fMP4 playlist 🔍")
+		if err := handleCMAF(body, base, *out, *concurrency); err != nil {
+			panic(err)
+		}
+		fmt.Println("✅ Done (CMAF mode)")
+		fmt.Println("All done in", time.Since(start).Round(time.Second))
+		return
+	}
+
 	segs, keyInfo, err := parseMediaPlaylist(body, base)
+
 	if err != nil {
 		panic(err)
 	}
@@ -205,7 +216,7 @@ func main() {
 	fmt.Printf("Found %d segments\n", len(segs))
 
 	td := *tmpdir
-    fmt.Println(td)
+	fmt.Println(td)
 	os.MkdirAll(td, 0755)
 
 	// KEY
@@ -224,7 +235,7 @@ func main() {
 	total := len(segs)
 	progress := make(chan struct{}, total)
 	var doneCount int64
-	
+
 	fmt.Println("\nDownloading segments...")
 	wg := sync.WaitGroup{}
 	sem := make(chan struct{}, *concurrency)
@@ -278,23 +289,23 @@ func main() {
 
 	// find ffmpeg in $PATH
 	ffmpeg_path, err := exec.LookPath("ffmpeg")
-    if err != nil {
-        fmt.Println("⚠️ Error: ffmpeg not found in system PATH. Conversion skipped.")
-        fmt.Println("   Please ensure ffmpeg is installed and accessible in the environment where this binary runs.")
-        fmt.Println("   (e.g., trying common macOS path /opt/homebrew/bin/ffmpeg)")
-        ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
-        if _, err := os.Stat(ffmpeg_path); os.IsNotExist(err) {
-            fmt.Println("   Fallback path also failed. Skipping conversion.")
-        }
-    }
+	if err != nil {
+		fmt.Println("⚠️ Error: ffmpeg not found in system PATH. Conversion skipped.")
+		fmt.Println("   Please ensure ffmpeg is installed and accessible in the environment where this binary runs.")
+		fmt.Println("   (e.g., trying common macOS path /opt/homebrew/bin/ffmpeg)")
+		ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+		if _, err := os.Stat(ffmpeg_path); os.IsNotExist(err) {
+			fmt.Println("   Fallback path also failed. Skipping conversion.")
+		}
+	}
 
-    fmt.Println("Using ffmpeg at:", ffmpeg_path) 
+	fmt.Println("Using ffmpeg at:", ffmpeg_path)
 
 	cmd := exec.Command(
-		ffmpeg_path, "-y", 
+		ffmpeg_path, "-y",
 		"-hide_banner", "-loglevel", "quiet",
 		"-f", "mpegts",
-		"-i", *out, 
+		"-i", *out,
 		"-c", "copy",
 		"-bsf:v", "h264_mp4toannexb",
 		"-bsf:a", "aac_adtstoasc",
@@ -332,39 +343,39 @@ func main() {
 
 // downloadRawFile: Downloads a single file from the given URL to the output path with a progress bar.
 func downloadRawFile(fileURL, outPath string) error {
-    req, err := http.NewRequest("GET", fileURL, nil)
-    if err != nil {
-        return err
-    }
-    req.Header.Set("User-Agent", userAgent)
-    
-    resp, err := client.Do(req)
-    if err != nil {
-        return err
-    }
-    defer resp.Body.Close()
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", userAgent)
 
-    if resp.StatusCode >= 400 {
-        return fmt.Errorf("HTTP %d", resp.StatusCode)
-    }
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
 
 	size, _ := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
 
-    out, err := os.Create(outPath)
-    if err != nil {
-        return err
-    }
-    defer out.Close()
+	out, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
 
 	// Init WriteCounter
 	counter := &WriteCounter{
-		Total: size,
-		FileName: path.Base(outPath),
+		Total:      size,
+		FileName:   path.Base(outPath),
 		LastUpdate: time.Now(),
 	}
-    _, err = io.Copy(out, io.TeeReader(resp.Body, counter))
-	fmt.Println() 
-    return err
+	_, err = io.Copy(out, io.TeeReader(resp.Body, counter))
+	fmt.Println()
+	return err
 }
 
 type variant struct {
@@ -450,7 +461,7 @@ func getText(u string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", userAgent)
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -479,7 +490,7 @@ func resolveURL(base *url.URL, ref string) (string, error) {
 			return "", err
 		}
 	}
-	
+
 	// If the reference is absolute, just return it.
 	if u.IsAbs() {
 		return u.String(), nil
@@ -528,7 +539,7 @@ func parseIV(s string) []byte {
 // fetchKey: Fetches the AES key using a disguised User-Agent.
 func fetchKey(k *KeyInfo, base *url.URL) ([]byte, []byte, error) {
 	full, _ := resolveURL(base, k.URI)
-	
+
 	req, err := http.NewRequest("GET", full, nil)
 	if err != nil {
 		return nil, nil, err
@@ -540,7 +551,7 @@ func fetchKey(k *KeyInfo, base *url.URL) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode >= 400 {
 		return nil, nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -560,7 +571,7 @@ func downloadSegment(seg Segment, key []byte, iv []byte, outDir string, retries 
 	}
 	var lastErr error
 	for i := 0; i <= retries; i++ {
-		
+
 		req, err := http.NewRequest("GET", seg.URI, nil)
 		if err != nil {
 			lastErr = err
@@ -575,7 +586,7 @@ func downloadSegment(seg Segment, key []byte, iv []byte, outDir string, retries 
 			time.Sleep(time.Second)
 			continue
 		}
-		
+
 		if resp.StatusCode >= 400 {
 			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
 			resp.Body.Close()
@@ -659,4 +670,115 @@ func concatSegments(segs []Segment, dir, out string) error {
 		sf.Close()
 	}
 	return nil
+}
+
+// =============================================================
+// CMAF/fMP4 handler: merge init.mp4 + semua .m4s segmen jadi MP4
+// =============================================================
+func handleCMAF(body string, base *url.URL, outBase string, concurrency int) error {
+	sc := bufio.NewScanner(strings.NewReader(body))
+	var initURI string
+	var segs []string
+
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(line, "#EXT-X-MAP:") {
+			attr := parseAttributes(strings.TrimPrefix(line, "#EXT-X-MAP:"))
+			initURI = attr["URI"]
+		} else if strings.HasPrefix(line, "#EXTINF:") {
+			if sc.Scan() {
+				seg := strings.TrimSpace(sc.Text())
+				segs = append(segs, seg)
+			}
+		}
+	}
+
+	if initURI == "" {
+		return fmt.Errorf("missing EXT-X-MAP (init.mp4)")
+	}
+
+	tmpdir := "m3u8_tmp_cmaf"
+	os.MkdirAll(tmpdir, 0755)
+
+	initFull, _ := resolveURL(base, initURI)
+	initPath := path.Join(tmpdir, "init.mp4")
+	fmt.Println("Downloading init segment:", initFull)
+	if err := downloadFile(initFull, initPath); err != nil {
+		return err
+	}
+
+	fmt.Printf("Found %d CMAF segments\n", len(segs))
+
+	sem := make(chan struct{}, concurrency)
+	wg := sync.WaitGroup{}
+
+	for i, seg := range segs {
+		wg.Add(1)
+		go func(i int, seg string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			full, _ := resolveURL(base, seg)
+			out := path.Join(tmpdir, fmt.Sprintf("%06d.m4s", i))
+			err := downloadFile(full, out)
+			if err != nil {
+				fmt.Println("⚠️  failed:", seg, err)
+			}
+			<-sem
+		}(i, seg)
+	}
+
+	wg.Wait()
+	fmt.Println("✅ All CMAF segments downloaded")
+
+	// merge ke file mp4 utuh
+	outMP4 := strings.TrimSuffix(outBase, path.Ext(outBase)) + ".mp4"
+	fmt.Println("Merging to:", outMP4)
+	return concatCMAF(initPath, tmpdir, len(segs), outMP4)
+}
+
+// merge init + segs jadi mp4 final
+func concatCMAF(initPath, dir string, count int, out string) error {
+	outf, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	defer outf.Close()
+
+	initf, err := os.Open(initPath)
+	if err != nil {
+		return err
+	}
+	io.Copy(outf, initf)
+	initf.Close()
+
+	buf := make([]byte, 32*1024)
+	for i := 0; i < count; i++ {
+		p := path.Join(dir, fmt.Sprintf("%06d.m4s", i))
+		sf, err := os.Open(p)
+		if err != nil {
+			fmt.Println("skip:", p)
+			continue
+		}
+		io.CopyBuffer(outf, sf, buf)
+		sf.Close()
+	}
+	return nil
+}
+
+// helper kecil buat download file tunggal
+func downloadFile(urlStr, out string) error {
+	req, _ := http.NewRequest("GET", urlStr, nil)
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, _ := os.Create(out)
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
 }

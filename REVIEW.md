@@ -61,3 +61,15 @@ Context7: `/golang/go/go1.27.1` and `/websites/ffmpeg_documentation`.
 | `govulncheck@v1.8.0 ./...` | No vulnerabilities found. |
 | Formatting and `git diff --check` | Passed. |
 | GitHub CI | Workflow added and reviewed locally; no remote CI run was triggered. |
+
+## Package refactor — 2026-10-01
+
+The layout described in the original review above has since changed: the CLI uses `urfave/cli/v3`, and source is split into `internal/cli` and `internal/downloader`, with a thin root `main.go`. Download validation stays in the downloader package. Existing regression tests moved beside their owning packages; actual media integration still exercises the CLI end to end. The CLI accepts a URL directly and detects HLS from the response body, preserving inspected bytes for direct-file transfers. Optional `hls <URL>` and `file <URL>` commands force a type; the old `download`, URL flags and `--rawurl` have been removed. HLS options are available in automatic mode and `hls`. See the README for the current source layout and syntax.
+
+## YouTube integration — 2026-10-01
+
+Automatic mode routes recognized YouTube hosts to the installed yt-dlp executable; `youtube <URL>` explicitly selects this backend. The backend disables inherited yt-dlp configuration/plugins, downloads one video, remuxes to MP4, and atomically publishes from a private staging directory. yt-dlp, FFmpeg and a supported JavaScript runtime are external runtime dependencies. Automated backend tests use fake executables; actual YouTube availability depends on provider/network restrictions.
+
+Verification: race tests and `go vet` passed, and the macOS executable was rebuilt. A real automatic-mode YouTube download of `jNQXAC9IVRw` succeeded through installed yt-dlp `2026.08.19`; FFprobe confirmed both video and audio streams in a 19.014-second MP4. The first older test-video URL returned “video unavailable”; provider errors were surfaced without publishing an output. No login/private-video or playlist download was tested.
+
+YouTube codec selection was subsequently restricted to H.264 video + AAC audio, with a matching combined stream as fallback and no automatic re-encoding. A fresh download of `jNQXAC9IVRw` passed; FFprobe confirmed `h264` video and `aac` audio. Race tests, vet, build and diff checks passed after the change.

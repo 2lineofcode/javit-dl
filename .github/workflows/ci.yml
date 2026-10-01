@@ -15,7 +15,7 @@ jobs:
           go-version-file: go.mod
           cache: false
       - run: brew install ffmpeg
-      - run: test -z "$(gofmt -l *.go)"
+      - run: test -z "$(gofmt -l .)"
       - run: go test -race -cover ./...
       - run: go vet ./...
       - run: go build -trimpath -o javit_dl .

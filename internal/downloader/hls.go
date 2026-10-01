@@ -1,4 +1,4 @@
-package main
+package downloader
 
 import (
 	"bufio"
@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,191 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
-
-type downloader struct {
-	options
-	client   *http.Client
-	progress io.Writer
-}
-
-func newDownloader(o options, output io.Writer) *downloader {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{Timeout: o.timeout, KeepAlive: 30 * time.Second}).DialContext
-	transport.ResponseHeaderTimeout = o.timeout
-	transport.MaxConnsPerHost = o.concurrency
-	transport.MaxIdleConnsPerHost = o.concurrency
-	return &downloader{o, &http.Client{Transport: transport}, output}
-}
-
-// Publish a complete file without ever replacing an existing destination, even in a race.
-// Staging on the destination filesystem makes the hard link atomic.
-func publish(out string, write func(*os.File) error) error {
-	f, err := os.CreateTemp(filepath.Dir(out), ".javit-dl-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err := write(f); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Link(f.Name(), out); err != nil {
-		return fmt.Errorf("publish %s: %w", out, err)
-	}
-	return nil
-}
-
-type statusError int
-
-func (e statusError) Error() string { return fmt.Sprintf("HTTP %d", int(e)) }
-
-func (d *downloader) retry(ctx context.Context, fn func() error) error {
-	var err error
-	for attempt := 0; attempt <= d.retries; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err = fn(); err == nil {
-			return nil
-		}
-		var status statusError
-		var fileError *os.PathError
-		if errors.As(err, &fileError) || (errors.As(err, &status) && status != 408 && status != 429 && status < 500) {
-			return err
-		}
-		if attempt == d.retries {
-			break
-		}
-		timer := time.NewTimer(time.Duration(min(attempt+1, 4)) * time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return err
-}
-
-func (d *downloader) request(ctx context.Context, a asset, w io.Writer) (*url.URL, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.uri, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", d.userAgent)
-	if d.referer != "" {
-		req.Header.Set("Referer", d.referer)
-	}
-	req.Header.Set("Accept-Encoding", "identity")
-	if a.length > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", a.offset, a.offset+a.length-1))
-	}
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	expected := http.StatusOK
-	if a.length > 0 {
-		expected = http.StatusPartialContent
-	}
-	if resp.StatusCode != expected {
-		return nil, statusError(resp.StatusCode)
-	}
-	if a.length > 0 {
-		prefix := fmt.Sprintf("bytes %d-%d/", a.offset, a.offset+a.length-1)
-		if !strings.HasPrefix(resp.Header.Get("Content-Range"), prefix) {
-			return nil, errors.New("server returned a mismatched Content-Range")
-		}
-	}
-	var reader io.Reader = resp.Body
-	limit := int64(0)
-	if a.key {
-		limit = 16
-	} else if a.length > 0 {
-		limit = a.length
-	}
-	if limit > 0 {
-		reader = io.LimitReader(reader, limit+1)
-	}
-	n, err := io.Copy(w, reader)
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		return nil, errors.New("empty download response")
-	}
-	if limit > 0 && n != limit {
-		return nil, fmt.Errorf("expected %d bytes, received %d", limit, n)
-	}
-	if a.encrypted && n%16 != 0 {
-		return nil, errors.New("AES-128 ciphertext must contain complete 16-byte blocks")
-	}
-	if resp.ContentLength >= 0 && n != resp.ContentLength {
-		return nil, io.ErrUnexpectedEOF
-	}
-	return resp.Request.URL, nil
-}
-
-func (d *downloader) fetchRaw(ctx context.Context, f *os.File) error {
-	return d.retry(ctx, func() error {
-		if err := f.Truncate(0); err != nil {
-			return err
-		}
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		counter := &byteProgress{out: d.progress}
-		_, err := d.request(ctx, asset{uri: d.url}, io.MultiWriter(f, counter))
-		fmt.Fprintf(d.progress, "\rDownloaded %d bytes\n", counter.n)
-		if err != nil {
-			return err
-		}
-		return ctx.Err()
-	})
-}
-
-type byteProgress struct {
-	n    int64
-	last time.Time
-	out  io.Writer
-}
-
-func (p *byteProgress) Write(b []byte) (int, error) {
-	p.n += int64(len(b))
-	if time.Since(p.last) >= 250*time.Millisecond {
-		fmt.Fprintf(p.out, "\rDownloading: %d bytes", p.n)
-		p.last = time.Now()
-	}
-	return len(b), nil
-}
-
-func (d *downloader) fetchPlaylist(ctx context.Context, uri string) (string, *url.URL, error) {
-	var body strings.Builder
-	var finalURL *url.URL
-	err := d.retry(ctx, func() error {
-		body.Reset()
-		attemptCtx, cancel := context.WithTimeout(ctx, d.timeout)
-		defer cancel()
-		var err error
-		finalURL, err = d.request(attemptCtx, asset{uri: uri}, &limitedWriter{w: &body, remaining: maxPlaylist})
-		return err
-	})
-	return body.String(), finalURL, err
-}
-
-type limitedWriter struct {
-	w         io.Writer
-	remaining int
-}
 
 func readChoice(ctx context.Context, reader *bufio.Reader) (string, error) {
 	type result struct {
@@ -216,15 +30,6 @@ func readChoice(ctx context.Context, reader *bufio.Reader) (string, error) {
 	case r := <-choice:
 		return r.line, r.err
 	}
-}
-
-func (w *limitedWriter) Write(b []byte) (int, error) {
-	if len(b) > w.remaining {
-		return 0, errors.New("playlist exceeds 8 MiB")
-	}
-	n, err := w.w.Write(b)
-	w.remaining -= n
-	return n, err
 }
 
 func (d *downloader) downloadAsset(ctx context.Context, a asset, dir string) error {
@@ -243,7 +48,7 @@ func (d *downloader) downloadAsset(ctx context.Context, a asset, dir string) err
 		return err
 	}
 	return d.retry(ctx, func() error {
-		attemptCtx, cancel := context.WithTimeout(ctx, d.timeout)
+		attemptCtx, cancel := context.WithTimeout(ctx, d.Timeout)
 		defer cancel()
 		return publish(out, func(f *os.File) error {
 			_, err := d.request(attemptCtx, a, f)
@@ -260,7 +65,7 @@ func (d *downloader) downloadAssets(ctx context.Context, assets []asset, dir str
 	var mu sync.Mutex
 	var firstErr error
 	done := 0
-	for i := 0; i < min(d.concurrency, len(assets)); i++ {
+	for i := 0; i < min(d.Concurrency, len(assets)); i++ {
 		wg.Go(func() {
 			for a := range jobs {
 				err := d.downloadAsset(ctx, a, dir)
@@ -272,7 +77,7 @@ func (d *downloader) downloadAssets(ctx context.Context, assets []asset, dir str
 					}
 				} else {
 					done++
-					fmt.Fprintf(d.progress, "\rResources: %d/%d", done, len(assets))
+					fmt.Fprintf(d.progress, "\rResources: %3d%% (%d/%d)", done*100/len(assets), done, len(assets))
 				}
 				mu.Unlock()
 			}
@@ -300,7 +105,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 	if err != nil {
 		return errors.New("ffmpeg is required for HLS; install it and add it to PATH")
 	}
-	uri := d.url
+	uri := d.URL
 	var body string
 	var base *url.URL
 	reader := bufio.NewReader(input)
@@ -324,7 +129,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 			break
 		}
 		idx := 0
-		if d.auto {
+		if d.Auto {
 			for i, v := range variants {
 				if v.bandwidth > variants[idx].bandwidth {
 					idx = i
@@ -357,12 +162,12 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 	if err != nil {
 		return err
 	}
-	digest := sha256.Sum256([]byte(base.String() + "\n" + body + "\n" + d.userAgent + "\n" + d.referer))
-	dir, err := filepath.Abs(filepath.Join(d.temp, fmt.Sprintf("%x", digest)))
+	digest := sha256.Sum256([]byte(base.String() + "\n" + body + "\n" + d.UserAgent + "\n" + d.Referer))
+	dir, err := filepath.Abs(filepath.Join(d.Temp, fmt.Sprintf("%x", digest)))
 	if err != nil {
 		return err
 	}
-	out, err := filepath.Abs(d.out)
+	out, err := filepath.Abs(d.Out)
 	if err != nil {
 		return err
 	}
@@ -386,6 +191,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 		return err
 	}
 	err = publish(out, func(f *os.File) error {
+		fmt.Fprintln(d.progress, "Remuxing to MP4...")
 		// All network resources have been validated and saved. FFmpeg only reads this job's
 		// local playlist, handles AES sequence IVs/key rotation and fMP4, then remuxes to MP4.
 		cmd := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "warning", "-xerror", "-y",

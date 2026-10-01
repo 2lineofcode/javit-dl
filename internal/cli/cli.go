@@ -1,0 +1,137 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	"javit_dl/internal/downloader"
+
+	urfave "github.com/urfave/cli/v3"
+)
+
+const usageExamples = `Download from a URL. YouTube links use yt-dlp; HLS playlists are detected
+from the response body. Other responses are saved unchanged. Replace the example URLs with your own links.
+
+Examples:
+  Download a playlist or file automatically:
+    ./javit_dl 'https://example.com/video' -o movie.mp4 --auto
+
+  Save to a custom path (the folder must already exist):
+    ./javit_dl 'https://example.com/video' -o '/home/xxx/movie.mp4' --auto
+
+  Download a direct file:
+    ./javit_dl 'https://example.com/archive.zip' -o archive.zip
+
+  Download a YouTube video automatically:
+    ./javit_dl 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
+
+To choose a type manually, use hls <URL>, file <URL> or youtube <URL>.
+YouTube requires yt-dlp and FFmpeg; HLS requires FFmpeg. Existing files are never overwritten.`
+
+const hlsExamples = `Download a finished HLS playlist as MP4. FFmpeg must be in PATH.
+Replace the example URLs with your own links.
+
+Examples:
+  Automatically choose the highest-bandwidth variant:
+    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto
+
+  Choose a variant interactively:
+    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4
+
+  Save to a custom path (the folder must already exist):
+    ./javit_dl hls 'https://example.com/master.m3u8' -o '/home/xxx/movie.mp4' --auto
+
+  Resume a failed HLS download by repeating the same URL and options:
+    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto -c 8 -r 3 --temp m3u8_tmp
+
+  Send headers required by the source website:
+    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
+
+Existing files are never overwritten. Press Ctrl+C to cancel.
+Completed HLS resources are kept for resume.`
+
+const fileExamples = `Download one HTTP(S) file unchanged. FFmpeg is not required.
+Replace the example URLs with your own links.
+
+Examples:
+  Download a video file:
+    ./javit_dl file 'https://example.com/video.mp4' -o video.mp4
+
+  Save any file to a custom path (the folder must already exist):
+    ./javit_dl file 'https://example.com/archive.zip' -o '/home/xxx/archive.zip'
+
+  Send headers required by the source website:
+    ./javit_dl file 'https://example.com/video.mp4' -o video.mp4 --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
+
+Existing files are never overwritten. Press Ctrl+C to cancel.
+Incomplete files are removed; file downloads restart from the beginning.`
+
+const youtubeExamples = `Download one YouTube video as H.264 + AAC MP4 using yt-dlp and FFmpeg.
+Both tools must be installed in PATH. A supported JavaScript runtime such as Deno
+is recommended by yt-dlp (macOS: brew install yt-dlp ffmpeg deno).
+
+Examples:
+  Download a YouTube video (also detected automatically without this command):
+    ./javit_dl youtube 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
+
+  Use a short link and custom output path:
+    ./javit_dl youtube 'https://youtu.be/jNQXAC9IVRw' -o '/home/xxx/youtube.mp4'
+
+Watch, Shorts, live video links and embedded video URLs are supported.
+H.264/AAC must be available; other codecs are not selected.
+Playlists and channels are unsupported. Existing files are never overwritten.
+Press Ctrl+C to cancel; temporary YouTube files are removed on failure.`
+
+// Run parses CLI arguments excluding the program name and executes the command.
+func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer) error {
+	o := downloader.Options{Concurrency: 8}
+	action := func(ctx context.Context, cmd *urfave.Command) error {
+		if cmd.NArg() != 1 {
+			return fmt.Errorf("provide exactly one HTTP(S) URL; see javit_dl --help")
+		}
+		o.URL = cmd.Args().First()
+		o.Raw = cmd.Name == "file"
+		o.YouTube = cmd.Name == "youtube"
+		o.Detect = cmd.Name == "javit_dl"
+		return downloader.Download(ctx, o, input, output, stderr)
+	}
+	commonFlags := []urfave.Flag{
+		&urfave.StringFlag{Name: "out", Aliases: []string{"o"}, Value: "output.mp4", Local: true, Destination: &o.Out, Usage: "Output file path; parent folder must exist"},
+		&urfave.IntFlag{Name: "retries", Aliases: []string{"r"}, Value: 3, Local: true, Destination: &o.Retries, Usage: "Retries after the first attempt (0-10)"},
+		&urfave.DurationFlag{Name: "timeout", Value: 30 * time.Second, Local: true, Destination: &o.Timeout, Usage: "HLS request / YouTube socket timeout (file: response headers only)"},
+		&urfave.StringFlag{Name: "user-agent", Value: "JavIt-DL/2.0", Local: true, Destination: &o.UserAgent, Usage: "HTTP User-Agent"},
+		&urfave.StringFlag{Name: "referer", Local: true, Destination: &o.Referer, Usage: "Optional HTTP Referer"},
+	}
+	hlsFlags := []urfave.Flag{
+		&urfave.IntFlag{Name: "concurrency", Aliases: []string{"c"}, Value: 8, Local: true, Destination: &o.Concurrency, Usage: "Parallel HLS downloads (1-64)"},
+		&urfave.StringFlag{Name: "temp", Aliases: []string{"tf"}, Value: "m3u8_tmp", Local: true, Destination: &o.Temp, Usage: "HLS resume directory; only job subdirectories are cleaned"},
+		&urfave.BoolFlag{Name: "auto", Local: true, Destination: &o.Auto, Usage: "Select highest-bandwidth variant without prompting"},
+	}
+	cmd := &urfave.Command{
+		Name:        "javit_dl",
+		Usage:       "Download a URL, automatically detecting YouTube, HLS or files",
+		ArgsUsage:   "<URL>",
+		Flags:       append(commonFlags, hlsFlags...),
+		Description: usageExamples,
+		Reader:      input,
+		Writer:      output,
+		ErrWriter:   stderr,
+		Action: func(ctx context.Context, cmd *urfave.Command) error {
+			if len(args) == 0 {
+				return urfave.ShowAppHelp(cmd)
+			}
+			return action(ctx, cmd)
+		},
+		Commands: []*urfave.Command{
+			{
+				Name: "hls", Usage: "Download an HLS playlist as MP4", ArgsUsage: "<URL>", Description: hlsExamples, Action: action,
+				Flags: append(commonFlags, hlsFlags...),
+			},
+			{Name: "youtube", Usage: "Download a YouTube video as MP4", ArgsUsage: "<URL>", Description: youtubeExamples, Flags: commonFlags, Action: action},
+			{Name: "file", Usage: "Download a direct file unchanged", ArgsUsage: "<URL>", Description: fileExamples, Flags: commonFlags, Action: action},
+		},
+	}
+	return cmd.Run(ctx, append([]string{"javit_dl"}, args...))
+}

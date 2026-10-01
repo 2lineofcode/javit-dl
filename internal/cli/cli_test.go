@@ -32,7 +32,7 @@ func TestCLIValidation(t *testing.T) {
 		{"file", "https://example.com", "--rawurl"}, {"file", "https://example.com", "--auto"},
 		{"file", "https://example.com", "--out"},
 		{"https://example.com", "extra"}, {"https://example.com", "--timeout", "0s"},
-		{"https://example.com", "--referer", "bad\r\nheader"}, {"https://user:pass@example.com"}, {"youtube"}, {"youtube", "https://example.com/video"}, {"youtube", "https://youtu.be/BaW_jenozKc", "extra"},
+		{"https://example.com", "--referer", "bad\r\nheader"}, {"https://user:pass@example.com"}, {"extract"}, {"extract", "file:///tmp/video"}, {"extract", "https://example.com", "--timeout", "0s"}, {"extract", "https://example.com", "extra"}, {"youtube"}, {"youtube", "https://example.com/video"}, {"youtube", "https://youtu.be/BaW_jenozKc", "extra"},
 	} {
 		if err := Run(context.Background(), args, strings.NewReader(""), io.Discard, io.Discard); err == nil {
 			t.Errorf("expected invalid arguments: %q", args)
@@ -44,7 +44,7 @@ func TestCLIValidation(t *testing.T) {
 }
 
 func TestCLIHelp(t *testing.T) {
-	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"hls", "--help"}, {"help", "hls"}, {"file", "--help"}, {"help", "file"}, {"youtube", "--help"}, {"help", "youtube"}} {
+	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"hls", "--help"}, {"help", "hls"}, {"file", "--help"}, {"help", "file"}, {"youtube", "--help"}, {"help", "youtube"}, {"extract", "--help"}, {"help", "extract"}} {
 		var output, stderr bytes.Buffer
 		if err := Run(context.Background(), args, nil, &output, &stderr); err != nil {
 			t.Fatalf("help %q: %v", args, err)

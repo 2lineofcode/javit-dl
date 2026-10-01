@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ type Options struct {
 	Concurrency, Retries               int
 	Timeout                            time.Duration
 	Auto, Raw, Detect, YouTube         bool
+	CookieJar                          http.CookieJar
 }
 
 // Download validates options and publishes a complete raw file or HLS MP4.
@@ -25,20 +27,8 @@ func Download(ctx context.Context, o Options, input io.Reader, output, stderr io
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(o.Out) == "" {
-		return errors.New("output path cannot be empty")
-	}
-	if o.Concurrency < 1 || o.Concurrency > 64 {
-		return errors.New("concurrency must be between 1 and 64")
-	}
-	if o.Retries < 0 || o.Retries > 10 {
-		return errors.New("retries must be between 0 and 10")
-	}
-	if o.Timeout <= 0 {
-		return errors.New("timeout must be positive")
-	}
-	if strings.ContainsAny(o.UserAgent+o.Referer, "\r\n") {
-		return errors.New("HTTP headers cannot contain newlines")
+	if err := validateOptions(o); err != nil {
+		return err
 	}
 	if o.YouTube || (o.Detect && isYouTubeURL(u)) {
 		return downloadYouTube(ctx, o, output, stderr)
@@ -88,6 +78,25 @@ func checkOutput(out string) error {
 	}
 	if !parent.IsDir() {
 		return errors.New("output parent must be a directory")
+	}
+	return nil
+}
+
+func validateOptions(o Options) error {
+	if strings.TrimSpace(o.Out) == "" {
+		return errors.New("output path cannot be empty")
+	}
+	if o.Concurrency < 1 || o.Concurrency > 64 {
+		return errors.New("concurrency must be between 1 and 64")
+	}
+	if o.Retries < 0 || o.Retries > 10 {
+		return errors.New("retries must be between 0 and 10")
+	}
+	if o.Timeout <= 0 {
+		return errors.New("timeout must be positive")
+	}
+	if strings.ContainsAny(o.UserAgent+o.Referer, "\r\n") {
+		return errors.New("HTTP headers cannot contain newlines")
 	}
 	return nil
 }

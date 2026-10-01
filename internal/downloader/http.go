@@ -26,7 +26,7 @@ func newDownloader(o Options, output io.Writer) *downloader {
 	transport.ResponseHeaderTimeout = o.Timeout
 	transport.MaxConnsPerHost = o.Concurrency
 	transport.MaxIdleConnsPerHost = o.Concurrency
-	return &downloader{o, &http.Client{Transport: transport}, output}
+	return &downloader{o, &http.Client{Transport: transport, Jar: o.CookieJar}, output}
 }
 
 var errHLS = errors.New("detected HLS playlist")

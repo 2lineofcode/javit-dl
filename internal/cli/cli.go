@@ -27,6 +27,7 @@ Examples:
   Download a YouTube video automatically:
     ./javit_dl 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
 
+To discover media interactively, use extract <website-URL>.
 To choose a type manually, use hls <URL>, file <URL> or youtube <URL>.
 YouTube requires yt-dlp and FFmpeg; HLS requires FFmpeg. Existing files are never overwritten.`
 
@@ -84,14 +85,38 @@ H.264/AAC must be available; other codecs are not selected.
 Playlists and channels are unsupported. Existing files are never overwritten.
 Press Ctrl+C to cancel; temporary YouTube files are removed on failure.`
 
+const extractExamples = `Open a separate Chrome/Chromium window and continuously capture media URLs.
+Navigate or play a video, then enter a listed media number in the terminal.
+HLS playlists and direct media files use the existing downloader. DASH is detected
+but cannot be downloaded. The browser closes after a successful download or q.
+
+Examples:
+  Open a website and choose a captured playlist:
+    ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --auto
+
+  Use a specific browser executable:
+    ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --browser '/path/to/chrome'
+
+Chrome/Chromium must be installed; HLS requires FFmpeg.
+Session cookies and the browser User-Agent are reused for HTTP downloads.
+The profile is temporary; login inside this window if needed.
+Existing files are never overwritten. Press Ctrl+C to cancel.`
+
 // Run parses CLI arguments excluding the program name and executes the command.
 func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer) error {
 	o := downloader.Options{Concurrency: 8}
+	var browser string
 	action := func(ctx context.Context, cmd *urfave.Command) error {
 		if cmd.NArg() != 1 {
 			return fmt.Errorf("provide exactly one HTTP(S) URL; see javit_dl --help")
 		}
 		o.URL = cmd.Args().First()
+		if cmd.Name == "extract" {
+			if !cmd.IsSet("user-agent") {
+				o.UserAgent = ""
+			}
+			return downloader.Extract(ctx, o, browser, input, output, stderr)
+		}
 		o.Raw = cmd.Name == "file"
 		o.YouTube = cmd.Name == "youtube"
 		o.Detect = cmd.Name == "javit_dl"
@@ -125,6 +150,7 @@ func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.
 			return action(ctx, cmd)
 		},
 		Commands: []*urfave.Command{
+			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"})},
 			{
 				Name: "hls", Usage: "Download an HLS playlist as MP4", ArgsUsage: "<URL>", Description: hlsExamples, Action: action,
 				Flags: append(commonFlags, hlsFlags...),

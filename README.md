@@ -7,7 +7,7 @@ A CLI downloader for YouTube videos, finished HLS playlists and single HTTP(S) f
 - **Go 1.27.1+** to build, as declared in `go.mod`.
 - **FFmpeg** in `PATH` for HLS and YouTube. The local setup uses FFmpeg 9.0.2; older versions are not verified. Direct file downloads do not need FFmpeg.
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** in `PATH` for YouTube. Install a supported JavaScript runtime such as **Deno**; see [yt-dlp EJS setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for runtime and challenge-solver requirements.
-- **Google Chrome or Chromium** installed for `extract`. The browser is auto-detected, or selected with `--browser <executable-path>`. This command opens a visible window and needs a desktop session.
+- **Google Chrome or Chromium** installed for `extract`. The browser is auto-detected, or selected with `--browser <executable-path>`. The default mode opens a visible window and needs a desktop session; `--headless` runs the browser without a window.
 - The output directory must already exist and support hard links. Final publication uses a hard link to prevent overwriting an existing file, including concurrent writes.
 
 On macOS:
@@ -78,18 +78,21 @@ go run . 'https://example.com/master.m3u8' -o movie.mp4 --auto
 | `-r`, `--retries` | all | `3` | Extra attempts after failure, from 0 to 10 |
 | `--timeout` | all | `30s` | Must be positive. Whole request timeout for HLS resources; socket timeout for YouTube; header/connect timeout for files; initial navigation and new-target attachment timeout in `extract` |
 | `--user-agent` | all | HTTP: `JavIt-DL/2.0`; YouTube: yt-dlp default; `extract`: browser default | Custom User-Agent; `extract` applies it to the browser and subsequent HTTP downloads |
-| `--referer` | all | Empty; captured request Referer in `extract` | Override the downloader Referer; in `extract`, this does not change browser requests |
+| `--referer` | all | Empty; captured request Referer in `extract` | Override the downloader Referer; this does not change browser capture requests |
 | `-c`, `--concurrency` | automatic, `hls`, `extract` | `8` | Parallel HLS resource downloads, from 1 to 64 |
 | `--tf`, `--temp` | automatic, `hls`, `extract` | `m3u8_tmp` | Parent directory for per-job HLS resume data; `-tf` is also accepted |
 | `--auto` | automatic, `hls`, `extract` | false | Choose the highest declared HLS `BANDWIDTH` variant; does not select an extracted media URL |
 | `--browser` | `extract` | Auto-detected | Chrome/Chromium executable path |
+| `--headless` | `extract` | false | Capture in the background, choose a URL in the terminal; failures retry once in visible mode |
+| `--capture-duration` | `extract` | `5s` | Headless capture time after initial navigation; must be positive in headless mode |
+| `--play-selector` | `extract` | Empty | CSS selector to click once during headless capture; requires `--headless` |
 | `-h`, `--help` | all | — | Show application or command help |
 
 Automatic mode and each command accept exactly one absolute HTTP(S) URL without embedded credentials. Options may appear before or after the URL. For an explicit command, put its options after the command name, for example `javit_dl extract --auto <URL>`. The old `download`, `-u`/`--url` and `--rawurl` syntax has been replaced by a positional URL, with optional `hls`, `file`, `youtube` and `extract` commands. Web mode has been removed.
 
 Automatic file transfers reuse the inspected response, so detection does not issue another file request. For HLS, detection reads a bounded prefix and then fetches the full playlist using the HLS request timeout. Use `hls <URL>` to avoid this initial detection request when a source only allows a single request. Extraction also makes a fresh download request after the browser request; single-use or expired signed URLs can fail.
 
-## Interactive extraction
+## Browser extraction
 
 ```sh
 ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --auto
@@ -98,15 +101,40 @@ Automatic file transfers reuse the inspected response, so detection does not iss
 ```
 
 1. Run `extract` with a website URL and the desired output path.
-2. Navigate, log in if required, and play the video in the separate Chrome/Chromium window. Its temporary profile does not reuse your regular browser login.
+2. Navigate, log in if required, and play the video in the separate Chrome/Chromium window. A dedicated per-site profile saves browser sessions automatically and does not reuse your regular browser profile.
 3. Watch the terminal for unique media URLs. Numbers are stable and start at **1**, in discovery order; `[HLS]` identifies playlist candidates. Signed query strings remain intact.
-4. Enter a media number to start downloading. `--auto` selects the highest-bandwidth HLS variant only; you always choose the captured URL yourself. Without `--auto`, master playlists prompt for a **0-based** quality index.
+4. Enter a media number to close the browser and start downloading using the copied session. `--auto` selects the highest-bandwidth HLS variant only; you always choose the captured URL yourself. Without `--auto`, master playlists prompt for a **0-based** quality index.
 
 At the media-selection prompt, `list` or an empty line shows all results; `q`, `quit` or `exit` closes the session. End-of-input also closes the session. During a download, use Ctrl+C to cancel.
 
+### Headless extraction
+
+```sh
+# No browser window; collect URLs for 15 seconds, then choose in the terminal
+./javit_dl extract 'https://example.com/watch' --headless -o movie.mp4 --auto
+
+# Give a slower player more time and click its play button
+./javit_dl extract 'https://example.com/watch' --headless \
+  --capture-duration 30s --play-selector '.play-button' -o movie.mp4 --auto
+```
+
+Headless capture starts after initial navigation and runs for `--capture-duration` (default `5s`). Without `--play-selector`, the app attempts muted playback of native video/audio elements immediately and every 500 ms, including accessible iframe documents and watched tabs. With a selector, it waits for that element in the initial page and attempts one click within the capture period; it does not also attempt native autoplay. A missing or invalid selector does not extend the capture deadline.
+
+At the end of the capture period, the result list is frozen and shown in the terminal. You still select a media number; `--auto` only selects HLS quality. Piped input also waits for capture to finish. After you select a valid downloadable media number, the app copies cookies and headers, closes Chrome, and starts the download. Use Ctrl+C to stop during capture or download.
+
+If Cloudflare verification prevents headless capture, the app automatically reopens the website in a visible browser using the same saved profile. Complete verification manually, play the video, and choose a URL in the terminal. The visible browser closes after you select a valid downloadable media number or quit; the app does not solve CAPTCHA or verification automatically. Future runs reuse the saved profile, but the site may require verification again. Headless mode still requires Chrome/Chromium and uses its resources. If headless capture or a selected download fails, the app closes the hidden browser and retries once in visible mode using the same saved profile. Play the video and select a fresh URL in the terminal. Quitting, end-of-input and cancellation do not trigger this retry. A failed visible-mode download ends the command; rerun extraction to select a fresh URL.
+
+### Saved browser sessions
+
+No profile flag is needed. Each starting hostname gets a separate profile under the system user-config directory: on macOS, `~/Library/Application Support/JavIt-DL/browser/<site-hash>`; on Linux, `$XDG_CONFIG_HOME/JavIt-DL/browser/<site-hash>` (default `~/.config`); on Windows, `%AppData%\JavIt-DL\browser\<site-hash>`.
+
+Persistent cookies and site storage are reused by visible/headless runs for that hostname. Session cookies follow Chrome's normal lifetime rules, and verification may expire or be rejected after switching browser modes. Close an extraction before starting another for the same site; Chrome locks its profile. To clear saved sessions, close extraction browsers and remove the `JavIt-DL/browser` folder. No regular Chrome profile is modified.
+
+### Capture behavior and limits
+
 Capture classifies successful HTTP(S) responses (2xx) by URL extension and response MIME type. HLS is recognized through `.m3u8` or supported playlist MIME types; DASH through `.mpd` or its MIME type. Direct-file extensions include `.mp4`, `.webm`, `.mov`, `.m4a`, `.mp3`, `.ogg` and `.wav`; extensionless audio/video responses must be browser media requests. Extraction does not inspect response bodies, so an HLS URL with neither a recognized extension nor a playlist MIME type will not be listed.
 
-The downloader reuses the browser User-Agent, request Referer (unless `--referer` overrides it), and cookies scoped by domain/path/HTTPS. Successful download closes the extraction browser. Download failures leave it open to select another result; browser startup/navigation or cookie-read failures end the session. Ctrl+C cancels extraction/download and removes the temporary browser profile. One run downloads one selected URL to `-o`: HLS normalizes the extension to `.mp4`, while direct media uses the exact path without transcoding. The output directory must exist and the requested path must be unused before the browser opens.
+The downloader copies the browser User-Agent, request Referer (unless `--referer` overrides it), and cookies scoped by domain/path/HTTPS before closing Chrome. Selecting an invalid number or unsupported DASH result keeps the browser open; selecting HLS or direct media closes it before download begins, including before HLS quality selection. Downloads use the copied session without a running browser. Headless failures retry once in visible mode as described above; failures after a visible selection end the command. Ctrl+C cancels extraction/download; the saved browser profile is retained. One run downloads one selected URL to `-o`: HLS normalizes the extension to `.mp4`, while direct media uses the exact path without transcoding. The output directory must exist and the requested path must be unused before the browser opens.
 
 The initial tab is watched before navigation. New tabs and separate iframe targets are discovered every 500 ms; reload a new tab or replay the embedded video if its first media request was missed. Extraction observes network requests rather than crawling every HTML link. DASH, DRM, live HLS, separate HLS audio renditions, browser-only blobs, partitioned cookies and custom Authorization headers are not supported. Fragmented MP4 requests may represent individual segments rather than a whole video; prefer the HLS master playlist when available. Browser login/cookies do not guarantee that a site will allow a separate HTTP downloader.
 
@@ -145,11 +173,11 @@ go vet ./...
 go build -trimpath -o javit_dl .
 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
-# Optional: real extraction regression with headless Chrome/Chromium installed
-JAVIT_DL_BROWSER_TEST=1 go test -race ./internal/downloader -run TestExtractBrowser -v
+# Optional: browser regressions with Chrome/Chromium and a desktop session
+JAVIT_DL_BROWSER_TEST=1 go test -race ./internal/downloader -run 'TestExtract(Browser|Headless|SavedSession)' -v
 ```
 
-Tests generate short media locally with FFmpeg and serve it through a local HTTP server. Integration tests verify TS/fMP4/byte-range/AES-128 downloads, inspect the resulting MP4 with FFprobe and fully decode it with FFmpeg. Install FFmpeg and FFprobe to run those checks; they are skipped when the executables are absent. Automated tests contact no external media sites. YouTube backend tests use local fake executables to verify arguments, routing, publication, cancellation and failures. Extraction classification/deduplication checks run in the normal test suite. The optional browser test verifies JavaScript-triggered capture, duplicate suppression, signed query preservation, invalid selection, recovery after a failed HLS selection, and a direct-file download using browser cookies/User-Agent/Referer. Its downloaded payload is synthetic; it does not validate real-site extraction or media playback.
+Tests generate short media locally with FFmpeg and serve it through a local HTTP server. Integration tests verify TS/fMP4/byte-range/AES-128 downloads, inspect the resulting MP4 with FFprobe and fully decode it with FFmpeg. Install FFmpeg and FFprobe to run those checks; they are skipped when the executables are absent. Automated tests contact no external media sites. YouTube backend tests use local fake executables to verify arguments, routing, publication, cancellation and failures. Extraction classification/deduplication checks run in the normal test suite. The optional browser test verifies JavaScript-triggered capture, duplicate suppression, signed query preservation, invalid selection, browser closure before download begins, and a direct-file download using copied browser cookies/User-Agent/Referer. Headless checks cover native autoplay, a delayed CSS play button, the capture deadline before selection, empty results and a missing selector. The headless fallback check verifies immediate handoff after HTTP 403 or empty capture, one shared terminal reader, a successful visible download, and no retry after quitting. The saved-session check verifies a local challenge handoff to a visible browser and persistent cookie reuse on a subsequent headless run; it briefly opens a browser window and does not solve a real Cloudflare challenge. Downloaded payloads are synthetic; it does not validate real-site extraction or media playback.
 
 CI runs formatting, race/coverage tests, vet, build and vulnerability checks on macOS with Homebrew FFmpeg. The real Chrome extraction test is opt-in and is not enabled by the current CI workflow.
 

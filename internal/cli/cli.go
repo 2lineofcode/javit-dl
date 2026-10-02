@@ -85,27 +85,38 @@ H.264/AAC must be available; other codecs are not selected.
 Playlists and channels are unsupported. Existing files are never overwritten.
 Press Ctrl+C to cancel; temporary YouTube files are removed on failure.`
 
-const extractExamples = `Open a separate Chrome/Chromium window and continuously capture media URLs.
+const extractExamples = `Capture media URLs in Chrome/Chromium, visibly or with --headless.
 Navigate or play a video, then enter a listed media number in the terminal.
 HLS playlists and direct media files use the existing downloader. DASH is detected
-but cannot be downloaded. The browser closes after a successful download or q.
+but cannot be downloaded. Choosing a valid media number closes the browser before
+download starts; q also closes the browser.
 
 Examples:
   Open a website and choose a captured playlist:
     ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --auto
+
+  Capture in the background for 20 seconds, then choose a URL:
+    ./javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s -o movie.mp4 --auto
+
+  Click a custom player button during headless capture:
+    ./javit_dl extract 'https://example.com/watch' --headless --play-selector '.play-button' -o movie.mp4 --auto
 
   Use a specific browser executable:
     ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --browser '/path/to/chrome'
 
 Chrome/Chromium must be installed; HLS requires FFmpeg.
 Session cookies and the browser User-Agent are reused for HTTP downloads.
-The profile is temporary; login inside this window if needed.
+Headless mode tries muted video/audio playback unless --play-selector is supplied.
+Headless capture lasts 5 seconds by default. Capture/download failures retry once
+in a visible browser; play the video and choose a fresh media number.
+Browser sessions are saved automatically per site.
+Cloudflare verification in headless mode opens a visible browser for you to complete.
 Existing files are never overwritten. Press Ctrl+C to cancel.`
 
 // Run parses CLI arguments excluding the program name and executes the command.
 func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer) error {
 	o := downloader.Options{Concurrency: 8}
-	var browser string
+	var extraction downloader.ExtractOptions
 	action := func(ctx context.Context, cmd *urfave.Command) error {
 		if cmd.NArg() != 1 {
 			return fmt.Errorf("provide exactly one HTTP(S) URL; see javit_dl --help")
@@ -115,7 +126,7 @@ func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.
 			if !cmd.IsSet("user-agent") {
 				o.UserAgent = ""
 			}
-			return downloader.Extract(ctx, o, browser, input, output, stderr)
+			return downloader.Extract(ctx, o, extraction, input, output, stderr)
 		}
 		o.Raw = cmd.Name == "file"
 		o.YouTube = cmd.Name == "youtube"
@@ -150,7 +161,10 @@ func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.
 			return action(ctx, cmd)
 		},
 		Commands: []*urfave.Command{
-			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"})},
+			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &extraction.Browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"},
+				&urfave.BoolFlag{Name: "headless", Local: true, Destination: &extraction.Headless, Usage: "Capture media without a browser window, then choose in the terminal"},
+				&urfave.DurationFlag{Name: "capture-duration", Value: 5 * time.Second, Local: true, Destination: &extraction.CaptureDuration, Usage: "Headless capture time after navigation (must be positive)"},
+				&urfave.StringFlag{Name: "play-selector", Local: true, Destination: &extraction.PlaySelector, Usage: "CSS selector to click once during headless capture; default tries native video/audio playback"})},
 			{
 				Name: "hls", Usage: "Download an HLS playlist as MP4", ArgsUsage: "<URL>", Description: hlsExamples, Action: action,
 				Flags: append(commonFlags, hlsFlags...),

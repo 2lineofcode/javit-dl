@@ -32,7 +32,7 @@ func TestCLIValidation(t *testing.T) {
 		{"file", "https://example.com", "--rawurl"}, {"file", "https://example.com", "--auto"},
 		{"file", "https://example.com", "--out"},
 		{"https://example.com", "extra"}, {"https://example.com", "--timeout", "0s"},
-		{"https://example.com", "--referer", "bad\r\nheader"}, {"https://user:pass@example.com"}, {"extract"}, {"extract", "file:///tmp/video"}, {"extract", "https://example.com", "--timeout", "0s"}, {"extract", "https://example.com", "extra"}, {"youtube"}, {"youtube", "https://example.com/video"}, {"youtube", "https://youtu.be/BaW_jenozKc", "extra"},
+		{"https://example.com", "--referer", "bad\r\nheader"}, {"https://user:pass@example.com"}, {"extract", "https://example.com", "--headless", "--capture-duration", "0s"}, {"extract", "https://example.com", "--headless", "--capture-duration", "-1s"}, {"extract", "https://example.com", "--play-selector", ".play"}, {"file", "https://example.com", "--headless"}, {"extract"}, {"extract", "file:///tmp/video"}, {"extract", "https://example.com", "--timeout", "0s"}, {"extract", "https://example.com", "extra"}, {"youtube"}, {"youtube", "https://example.com/video"}, {"youtube", "https://youtu.be/BaW_jenozKc", "extra"},
 	} {
 		if err := Run(context.Background(), args, strings.NewReader(""), io.Discard, io.Discard); err == nil {
 			t.Errorf("expected invalid arguments: %q", args)

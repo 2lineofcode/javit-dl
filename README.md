@@ -31,6 +31,15 @@ From the project folder, build and launch the desktop app:
 
 Re-run `./build.sh` after changing the source. Node.js is only needed to build the app.
 
+To build and install into `GOBIN` (or the first `GOPATH` entry's `bin` folder):
+
+```sh
+./install.sh
+javit_dl gui
+```
+
+Keep that folder in your `PATH`. Plain `go install` rebuilds without the desktop build tag.
+
 For a terminal-only build, use `go build -trimpath -o javit_dl .` instead.
 
 ## Desktop usage
@@ -40,6 +49,15 @@ For a terminal-only build, use `go build -trimpath -o javit_dl .` instead.
 3. Click **Start download**. For extraction, play the video in the browser, then select the captured media in the app.
 
 HLS quality is selected automatically by default; uncheck the option to choose manually. Use **More settings** for additional options or **Cancel download** to stop. The app runs one download at a time.
+
+Prefill the desktop form from the terminal:
+
+```sh
+./javit_dl gui -u 'http://domain.zxc' -o movie.mp4 --auto
+./javit_dl gui -u 'https://example.com/watch' --mode extract --headless --capture-duration 20s
+```
+
+GUI parameters fill the form without starting a download. Omitted options retain desktop defaults, including the Downloads output path and HLS cache folder. Use `--mode auto|hls|file|youtube|extract` to choose a mode; extraction options select `extract` when `--mode` is omitted. Use `--auto=false` for manual HLS quality. GUI timeout/capture durations must be whole seconds (for example `30s` or `1m`).
 
 ## Terminal usage
 
@@ -92,7 +110,7 @@ Passing a URL without a command automatically detects YouTube, HLS, or a direct 
 | `--capture-duration <duration>` | Background capture time; defaults to `5s` |
 | `--play-selector <selector>` | Website play button to click during background capture |
 
-Options apply to the relevant download mode; `gui` takes no options. Put command options after the command name. `--auto` selects HLS quality; extracted media must still be selected manually. Omit `--auto` to choose HLS quality yourself.
+Options apply to the relevant download mode. `gui` also accepts these options to prefill its form, plus `-u`/`--url` and `--mode`. Put command options after the command name. `--auto` selects HLS quality; extracted media must still be selected manually. Omit `--auto` to choose HLS quality yourself.
 
 Add `--help` to any command, for example `./javit_dl youtube --help` or `./javit_dl extract --help`, for its available options. Press **Ctrl+C** to cancel.
 

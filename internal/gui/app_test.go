@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"javit_dl/internal/cli"
 )
 
 func waitJob(t *testing.T, a *App) State {
@@ -178,5 +181,27 @@ func TestHLSQualityCancellation(t *testing.T) {
 	a.shutdown()
 	if s := a.GetState(); s.Status != "Cancelled" {
 		t.Fatalf("state=%+v", s)
+	}
+}
+
+func TestCLIFormDefaults(t *testing.T) {
+	a := newApp(context.Background())
+	defaults, err := a.Defaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cli.RunWithGUI(context.Background(), []string{"gui", "-u", "http://example.com/watch", "--headless", "-r", "0", "--auto=false", "--timeout", "1m"}, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { a.initial = initial; return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.Defaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.URL != "http://example.com/watch" || r.Mode != "extract" || !r.Headless || r.Retries != 0 || r.Auto || r.Timeout != 60 || r.Out != defaults.Out || r.Temp != defaults.Temp || r.CaptureDuration != defaults.CaptureDuration || r.UserAgent != "" {
+		t.Fatalf("defaults=%+v", r)
+	}
+	if a.GetState().Active {
+		t.Fatal("prefill started a download")
 	}
 }

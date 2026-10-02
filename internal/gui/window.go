@@ -13,11 +13,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func Run(ctx context.Context, assets fs.FS) error {
+func Run(ctx context.Context, assets fs.FS, initial map[string]any) error {
 	if _, err := fs.Stat(assets, "index.html"); err != nil {
 		return fmt.Errorf("GUI assets are missing; run ./build.sh first")
 	}
 	a := newApp(ctx)
+	a.initial = initial
+	if _, err := a.Defaults(); err != nil {
+		return err
+	}
 	err := wails.Run(&options.App{
 		Title: "JavIt Downloader", Width: 600, Height: 500, DisableResize: true,
 		BackgroundColour: options.NewRGB(17, 20, 27), AssetServer: &assetserver.Options{Assets: assets},

@@ -119,7 +119,7 @@ func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.
 }
 
 // RunWithGUI adds the desktop launcher without coupling the CLI to Wails.
-func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer, launch func(context.Context) error) error {
+func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer, launch func(context.Context, map[string]any) error) error {
 	o := downloader.Options{Concurrency: 8}
 	var extraction downloader.ExtractOptions
 	action := func(ctx context.Context, cmd *urfave.Command) error {
@@ -150,6 +150,37 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		&urfave.StringFlag{Name: "temp", Aliases: []string{"tf"}, Value: "m3u8_tmp", Local: true, Destination: &o.Temp, Usage: "HLS resume directory; only job subdirectories are cleaned"},
 		&urfave.BoolFlag{Name: "auto", Local: true, Destination: &o.Auto, Usage: "Select highest-bandwidth variant without prompting"},
 	}
+	extractFlags := append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &extraction.Browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"},
+		&urfave.BoolFlag{Name: "headless", Local: true, Destination: &extraction.Headless, Usage: "Capture media without a browser window, then choose in the terminal"},
+		&urfave.DurationFlag{Name: "capture-duration", Value: 5 * time.Second, Local: true, Destination: &extraction.CaptureDuration, Usage: "Headless capture time after navigation (must be positive)"},
+		&urfave.StringFlag{Name: "play-selector", Local: true, Destination: &extraction.PlaySelector, Usage: "CSS selector to click once during headless capture; default tries native video/audio playback"})
+
+	guiFlags := append([]urfave.Flag{}, extractFlags...)
+	for i, flag := range guiFlags {
+		switch flag := flag.(type) {
+		case *urfave.StringFlag:
+			copy := *flag
+			switch copy.Name {
+			case "out":
+				copy.DefaultText = "Downloads/output.mp4"
+			case "temp":
+				copy.DefaultText = "system user-cache folder"
+			case "user-agent":
+				copy.DefaultText = "default for selected mode"
+			}
+			guiFlags[i] = &copy
+		case *urfave.BoolFlag:
+			copy := *flag
+			if copy.Name == "auto" {
+				copy.Value = true
+				copy.Usage = "Select highest-bandwidth HLS quality; use --auto=false to choose manually"
+			}
+			if copy.Name == "headless" {
+				copy.Usage = "Capture media in the background, then choose in the desktop app"
+			}
+			guiFlags[i] = &copy
+		}
+	}
 	cmd := &urfave.Command{
 		Name:        "javit_dl",
 		Usage:       "Download a URL, automatically detecting YouTube, HLS or files",
@@ -166,19 +197,25 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 			return action(ctx, cmd)
 		},
 		Commands: []*urfave.Command{
-			{Name: "gui", Usage: "Open the desktop interface", Action: func(ctx context.Context, cmd *urfave.Command) error {
-				if cmd.NArg() != 0 {
-					return fmt.Errorf("gui takes no arguments")
-				}
-				if launch == nil {
-					return fmt.Errorf("GUI launcher is unavailable")
-				}
-				return launch(ctx)
-			}},
-			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &extraction.Browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"},
-				&urfave.BoolFlag{Name: "headless", Local: true, Destination: &extraction.Headless, Usage: "Capture media without a browser window, then choose in the terminal"},
-				&urfave.DurationFlag{Name: "capture-duration", Value: 5 * time.Second, Local: true, Destination: &extraction.CaptureDuration, Usage: "Headless capture time after navigation (must be positive)"},
-				&urfave.StringFlag{Name: "play-selector", Local: true, Destination: &extraction.PlaySelector, Usage: "CSS selector to click once during headless capture; default tries native video/audio playback"})},
+			{Name: "gui", Usage: "Open the desktop interface with optional form values", ArgsUsage: " ",
+				Description: "Options prefill the form; click Start download to begin.\n\nExamples:\n  ./javit_dl gui -u https://example.com/video -o movie.mp4 --auto\n  ./javit_dl gui -u https://example.com/watch --mode extract --headless\n  ./javit_dl gui --help",
+				Flags: append(guiFlags,
+					&urfave.StringFlag{Name: "url", Aliases: []string{"u"}, Local: true, Usage: "URL to prefill in the desktop form"},
+					&urfave.StringFlag{Name: "mode", Value: "auto", Local: true, Usage: "Download mode: auto, hls, file, youtube, extract"}),
+				Action: func(ctx context.Context, cmd *urfave.Command) error {
+					if cmd.NArg() != 0 {
+						return fmt.Errorf("use gui -u <URL>; positional arguments are not accepted")
+					}
+					initial, err := guiValues(cmd)
+					if err != nil {
+						return err
+					}
+					if launch == nil {
+						return fmt.Errorf("GUI launcher is unavailable")
+					}
+					return launch(ctx, initial)
+				}},
+			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: extractFlags},
 			{
 				Name: "hls", Usage: "Download an HLS playlist as MP4", ArgsUsage: "<URL>", Description: hlsExamples, Action: action,
 				Flags: append(commonFlags, hlsFlags...),
@@ -188,4 +225,50 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		},
 	}
 	return cmd.Run(ctx, append([]string{"javit_dl"}, args...))
+}
+
+// guiValues forwards only explicit flags, preserving the desktop defaults.
+func guiValues(cmd *urfave.Command) (map[string]any, error) {
+	initial := map[string]any{}
+	mode := cmd.String("mode")
+	for _, name := range []string{"browser", "headless", "capture-duration", "play-selector"} {
+		if cmd.IsSet(name) {
+			if !cmd.IsSet("mode") {
+				mode = "extract"
+			}
+			if mode != "extract" {
+				return nil, fmt.Errorf("--%s requires --mode extract", name)
+			}
+		}
+	}
+	switch mode {
+	case "auto", "hls", "file", "youtube", "extract":
+	default:
+		return nil, fmt.Errorf("invalid mode %q; use auto, hls, file, youtube or extract", mode)
+	}
+	if cmd.String("play-selector") != "" && !cmd.Bool("headless") {
+		return nil, fmt.Errorf("--play-selector requires --headless")
+	}
+	if cmd.IsSet("mode") || mode != "auto" {
+		initial["mode"] = mode
+	}
+	for flag, field := range map[string]string{"url": "url", "out": "out", "retries": "retries", "user-agent": "userAgent", "referer": "referer", "concurrency": "concurrency", "temp": "temp", "auto": "auto", "browser": "browser", "headless": "headless", "play-selector": "playSelector"} {
+		if cmd.IsSet(flag) {
+			initial[field] = cmd.Value(flag)
+		}
+	}
+	for flag, field := range map[string]string{"timeout": "timeout", "capture-duration": "captureDuration"} {
+		if cmd.IsSet(flag) {
+			duration := cmd.Duration(flag)
+			limit := 86400 * time.Second
+			if flag == "capture-duration" {
+				limit = 3600 * time.Second
+			}
+			if duration < time.Second || duration > limit || duration%time.Second != 0 {
+				return nil, fmt.Errorf("--%s must be whole seconds between 1s and %s in GUI mode", flag, limit)
+			}
+			initial[field] = int(duration / time.Second)
+		}
+	}
+	return initial, nil
 }

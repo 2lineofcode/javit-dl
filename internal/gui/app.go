@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,7 @@ type State struct {
 
 // App owns one job. All state exchanged with React is copied under the mutex.
 type App struct {
+	initial       map[string]any
 	ctx           context.Context
 	windowCtx     context.Context
 	mu            sync.Mutex
@@ -81,7 +83,15 @@ func (a *App) Defaults() (Request, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		dir = home
 	}
-	return Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "JavIt-DL", "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true}, nil
+	r := Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "JavIt-DL", "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true}
+	patch, err := json.Marshal(a.initial)
+	if err != nil {
+		return Request{}, err
+	}
+	if err := json.Unmarshal(patch, &r); err != nil {
+		return Request{}, err
+	}
+	return r, nil
 }
 
 func (a *App) GetState() State {

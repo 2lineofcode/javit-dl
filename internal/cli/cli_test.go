@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -350,12 +351,38 @@ func TestHLSIntegration(t *testing.T) {
 
 func TestGUILauncher(t *testing.T) {
 	called := false
-	launch := func(context.Context) error { called = true; return nil }
+	launch := func(context.Context, map[string]any) error { called = true; return nil }
 	if err := RunWithGUI(context.Background(), []string{"gui"}, strings.NewReader(""), io.Discard, io.Discard, launch); err != nil || !called {
 		t.Fatalf("called=%v err=%v", called, err)
 	}
 	called = false
 	if err := RunWithGUI(context.Background(), []string{"gui", "unexpected"}, strings.NewReader(""), io.Discard, io.Discard, launch); err == nil || called {
 		t.Fatalf("called=%v err=%v", called, err)
+	}
+}
+
+func TestGUIParameters(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want map[string]any
+	}{
+		{[]string{"gui"}, map[string]any{}},
+		{[]string{"gui", "-u", "https://example.com/watch?token=a%2Fb", "-o", "movie.mp4", "-c", "4", "-r", "0", "--timeout", "45s", "--auto=false", "--headless", "--capture-duration", "20s", "--play-selector", ".play", "--browser", "/path/to/chrome", "--temp", "cache", "--user-agent", "Custom UA", "--referer", "https://example.com/"}, map[string]any{"url": "https://example.com/watch?token=a%2Fb", "out": "movie.mp4", "concurrency": 4, "retries": 0, "timeout": 45, "auto": false, "headless": true, "captureDuration": 20, "playSelector": ".play", "browser": "/path/to/chrome", "temp": "cache", "userAgent": "Custom UA", "referer": "https://example.com/", "mode": "extract"}},
+		{[]string{"gui", "--url", "http://example.com/video", "--mode", "file"}, map[string]any{"url": "http://example.com/video", "mode": "file"}},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			var got map[string]any
+			err := RunWithGUI(context.Background(), tc.args, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { got = initial; return nil })
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got=%#v want=%#v err=%v", got, tc.want, err)
+			}
+		})
+	}
+	for _, args := range [][]string{{"gui", "-u"}, {"gui", "-x"}, {"gui", "--mode", "invalid"}, {"gui", "--timeout", "500ms"}, {"gui", "--timeout", "1500ms"}, {"gui", "--capture-duration", "2h"}, {"gui", "--mode", "file", "--headless"}, {"gui", "--play-selector", ".play"}} {
+		called := false
+		err := RunWithGUI(context.Background(), args, strings.NewReader(""), io.Discard, io.Discard, func(context.Context, map[string]any) error { called = true; return nil })
+		if err == nil || called {
+			t.Fatalf("accepted invalid parameters %v: called=%v err=%v", args, called, err)
+		}
 	}
 }

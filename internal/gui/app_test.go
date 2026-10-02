@@ -195,7 +195,7 @@ func TestCLIFormDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cli.RunWithGUI(context.Background(), []string{"gui", "-u", "http://example.com/watch", "--startdownload", "--headless", "-r", "0", "--auto=false", "--timeout", "1m"}, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { a.initial = initial; return nil })
+	err = cli.RunWithGUI(context.Background(), []string{"gui", "-u", "http://example.com/watch", "--startdownload", "--headless", "--allow-popups", "-r", "0", "--auto=false", "--timeout", "1m"}, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { a.initial = initial; return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,10 +203,23 @@ func TestCLIFormDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.StartDownload || r.URL != "http://example.com/watch" || r.Mode != "extract" || !r.Headless || r.Retries != 0 || r.Auto || r.Timeout != 60 || r.Out != defaults.Out || r.Temp != defaults.Temp || r.CaptureDuration != defaults.CaptureDuration || r.UserAgent != "" {
+	if !r.StartDownload || r.URL != "http://example.com/watch" || r.Mode != "extract" || !r.Headless || !r.AllowPopups || r.Retries != 0 || r.Auto || r.Timeout != 60 || r.Out != defaults.Out || r.Temp != defaults.Temp || r.CaptureDuration != defaults.CaptureDuration || r.UserAgent != "" {
 		t.Fatalf("defaults=%+v", r)
 	}
 	if a.GetState().Active {
 		t.Fatal("prefill started a download")
+	}
+}
+
+func TestExtractFilenameDefaults(t *testing.T) {
+	a := newApp(context.Background())
+	r, err := a.Defaults()
+	if err != nil || !r.AutoFilename {
+		t.Fatalf("automatic filename should be enabled: %+v %v", r, err)
+	}
+	a.initial = map[string]any{"out": "custom.mp4", "mode": "extract"}
+	r, err = a.Defaults()
+	if err != nil || r.AutoFilename || r.Out != "custom.mp4" {
+		t.Fatalf("explicit output must be preserved: %+v %v", r, err)
 	}
 }

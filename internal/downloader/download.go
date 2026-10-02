@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +19,8 @@ type Options struct {
 	Concurrency, Retries               int
 	Timeout                            time.Duration
 	Auto, Raw, Detect, YouTube         bool
+	PromptOverwrite                    bool
+	overwrite                          string
 	CookieJar                          http.CookieJar
 	ChooseVariant                      func(context.Context, []int64) (int, error)
 }
@@ -31,8 +34,11 @@ func Download(ctx context.Context, o Options, input io.Reader, output, stderr io
 	if err := validateOptions(o); err != nil {
 		return err
 	}
+	if input != nil {
+		input = bufio.NewReader(input)
+	}
 	if o.YouTube || (o.Detect && isYouTubeURL(u)) {
-		return downloadYouTube(ctx, o, output, stderr)
+		return downloadYouTube(ctx, o, input, output, stderr)
 	}
 	if !o.Raw && o.Temp == "" {
 		return errors.New("temporary directory cannot be empty")
@@ -40,18 +46,18 @@ func Download(ctx context.Context, o Options, input io.Reader, output, stderr io
 	if !o.Raw && !o.Detect {
 		o.Out = strings.TrimSuffix(o.Out, filepath.Ext(o.Out)) + ".mp4"
 	}
-	if err := checkOutput(o.Out); err != nil {
+	if err := o.prepareOutput(ctx, input, output); err != nil {
 		return err
 	}
 	d := newDownloader(o, output)
 	defer d.client.CloseIdleConnections()
 	start := time.Now()
 	if o.Raw || o.Detect {
-		err := publish(o.Out, func(f *os.File) error { return d.fetchRaw(ctx, f) })
+		err := publish(o.Out, o.overwrite == o.Out, func(f *os.File) error { return d.fetchRaw(ctx, f) })
 		if errors.Is(err, errHLS) {
 			d.Detect = false
 			d.Out = strings.TrimSuffix(d.Out, filepath.Ext(d.Out)) + ".mp4"
-			if err := checkOutput(d.Out); err != nil {
+			if err := d.Options.prepareOutput(ctx, input, output); err != nil {
 				return err
 			}
 			if err := d.downloadHLS(ctx, input, stderr); err != nil {
@@ -69,7 +75,7 @@ func Download(ctx context.Context, o Options, input io.Reader, output, stderr io
 
 func checkOutput(out string) error {
 	if _, err := os.Lstat(out); err == nil {
-		return fmt.Errorf("output already exists: %s", out)
+		return fmt.Errorf("output already exists: %s: %w", out, os.ErrExist)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -80,6 +86,40 @@ func checkOutput(out string) error {
 	if !parent.IsDir() {
 		return errors.New("output parent must be a directory")
 	}
+	return nil
+}
+
+func (o *Options) prepareOutput(ctx context.Context, input io.Reader, output io.Writer) error {
+	err := checkOutput(o.Out)
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	if !o.PromptOverwrite || input == nil {
+		return err
+	}
+	info, statErr := os.Lstat(o.Out)
+	if statErr != nil {
+		return statErr
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("cannot overwrite a directory or symlink: %s", o.Out)
+	}
+	if o.overwrite == o.Out {
+		return nil
+	}
+	fmt.Fprintf(output, "Output already exists: %s. Overwrite? [y/N]: ", o.Out)
+	reader, ok := input.(*bufio.Reader)
+	if !ok {
+		reader = bufio.NewReader(input)
+	}
+	answer, readErr := readChoice(ctx, reader)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return readErr
+	}
+	if answer = strings.ToLower(strings.TrimSpace(answer)); answer != "y" && answer != "yes" {
+		return errors.New("overwrite declined; existing file kept")
+	}
+	o.overwrite = o.Out
 	return nil
 }
 

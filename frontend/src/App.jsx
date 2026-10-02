@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { call } from './api.js';
 
 const modes = [ ['auto', 'Auto detect'], ['extract', 'Extract from website'], ['hls', 'HLS playlist'], ['youtube', 'YouTube'], ['file', 'Direct file'] ];
-const initial = { url: '', out: '', mode: 'auto', temp: '', concurrency: 8, retries: 3, timeout: 30, userAgent: '', referer: '', auto: true, browser: '', headless: false, captureDuration: 5, playSelector: '' };
+const initial = { url: '', out: '', mode: 'auto', temp: '', concurrency: 8, retries: 3, timeout: 30, userAgent: '', referer: '', auto: true, autoFilename: true, browser: '', headless: false, captureDuration: 5, playSelector: '' };
 
 function Field({ label, help, ...props }) {
   return <label className="field"><span>{label}</span><input {...props} />{help && <small>{help}</small>}</label>;
@@ -19,6 +19,7 @@ function Options({ request, set }) {
       <Field label="User-Agent" placeholder="Default for selected mode" value={request.userAgent} onChange={(e) => set('userAgent', e.target.value)} />
       <Field label="Referer" placeholder="https://example.com/" value={request.referer} onChange={(e) => set('referer', e.target.value)} />
       {request.mode === 'extract' && <>
+	    <label className="check"><input type="checkbox" checked={!!request.allowPopups} onChange={(e) => set('allowPopups', e.target.checked)} />Allow popups and new tabs for login or external players</label>
         <Field label="Chrome / Chromium path" placeholder="Auto-detect" value={request.browser} onChange={(e) => set('browser', e.target.value)} />
         <label className="check"><input type="checkbox" checked={request.headless} onChange={(e) => { set('headless', e.target.checked); if (!e.target.checked) set('playSelector', ''); }} />Capture in background</label>
         {request.headless && <>
@@ -61,7 +62,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
-  const set = (key, value) => setRequest((current) => ({ ...current, [key]: value }));
+  const set = (key, value) => setRequest((current) => ({ ...current, [key]: value, ...(key === 'out' ? { autoFilename: false } : {}) }));
+  useEffect(() => { if (state.out) setRequest((current) => ({ ...current, out: state.out })); }, [state.out]);
   const refresh = async () => setState(await call('GetState'));
   useEffect(() => {
     let mounted = true;
@@ -102,6 +104,7 @@ export default function App() {
         <Field label={request.mode === 'extract' ? 'Website URL' : 'Download URL'} type="url" required placeholder="https://…" value={request.url} onChange={(e) => set('url', e.target.value)} />
         <p className="hint">{request.mode === 'extract' ? 'Play the video in Chrome, then select captured media.' : request.mode === 'auto' ? 'YouTube, HLS or direct files. For webpages, use Extract.' : request.mode === 'file' ? 'Saves the response unchanged using the exact filename.' : 'Saves as MP4. FFmpeg is required; YouTube also needs yt-dlp.'}</p>
         <div className="save-row"><Field label="Save to" required value={request.out} onChange={(e) => set('out', e.target.value)} /><button className="secondary" type="button" onClick={savePath}>Browse…</button></div>
+        {request.mode === 'extract' && <label className="check"><input type="checkbox" checked={request.autoFilename} onChange={(e) => set('autoFilename', e.target.checked)} />Use page title as filename <span className="muted">(keeps the selected folder)</span></label>}
         {!['file','youtube'].includes(request.mode) && <label className="check"><input type="checkbox" checked={request.auto} onChange={(e) => set('auto', e.target.checked)} />Auto-select highest-bandwidth HLS quality</label>}
         <Options request={request} set={set} />
       </fieldset>

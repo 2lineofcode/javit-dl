@@ -33,6 +33,8 @@ type Request struct {
 	CaptureDuration int    `json:"captureDuration"`
 	Auto            bool   `json:"auto"`
 	Headless        bool   `json:"headless"`
+	AutoFilename    bool   `json:"autoFilename"`
+	AllowPopups     bool   `json:"allowPopups"`
 }
 
 type Choice struct {
@@ -47,6 +49,7 @@ type State struct {
 	Status     string   `json:"status"`
 	Error      string   `json:"error"`
 	Progress   string   `json:"progress"`
+	Out        string   `json:"out"`
 	Logs       []string `json:"logs"`
 	Choices    []Choice `json:"choices"`
 	ChoiceKind string   `json:"choiceKind"`
@@ -84,13 +87,16 @@ func (a *App) Defaults() (Request, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		dir = home
 	}
-	r := Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "JavIt-DL", "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true}
+	r := Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "JavIt-DL", "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true, AutoFilename: true}
 	patch, err := json.Marshal(a.initial)
 	if err != nil {
 		return Request{}, err
 	}
 	if err := json.Unmarshal(patch, &r); err != nil {
 		return Request{}, err
+	}
+	if _, explicit := a.initial["out"]; explicit {
+		r.AutoFilename = false
 	}
 	return r, nil
 }
@@ -159,7 +165,11 @@ func (a *App) run(ctx context.Context, cancel context.CancelFunc, r Request, inp
 	reader := &jobInput{ctx: ctx, lines: input}
 	var err error
 	if r.Mode == "extract" {
-		x := downloader.ExtractOptions{Browser: r.Browser, Headless: r.Headless, CaptureDuration: time.Duration(r.CaptureDuration) * time.Second, PlaySelector: r.PlaySelector, OnMedia: func(media []downloader.Media) {
+		x := downloader.ExtractOptions{Browser: r.Browser, Headless: r.Headless, AllowPopups: r.AllowPopups, AutoFilename: r.AutoFilename, OnOutput: func(out string) {
+			a.mu.Lock()
+			a.state.Out = out
+			a.mu.Unlock()
+		}, CaptureDuration: time.Duration(r.CaptureDuration) * time.Second, PlaySelector: r.PlaySelector, OnMedia: func(media []downloader.Media) {
 			// ponytail: display the latest 200 candidates; add paging if large captures matter.
 			start := max(0, len(media)-200)
 			choices := make([]Choice, 0, len(media)-start)

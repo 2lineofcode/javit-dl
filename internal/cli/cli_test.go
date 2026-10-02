@@ -388,3 +388,20 @@ func TestGUIParameters(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIOverwrite(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "new file") }))
+	defer server.Close()
+	out := filepath.Join(t.TempDir(), "existing.zip")
+	if err := os.WriteFile(out, []byte("old file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(context.Background(), []string{server.URL, "-o", out}, strings.NewReader("yes\n"), &output, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(out)
+	if string(body) != "new file" || !strings.Contains(output.String(), "Overwrite? [y/N]") {
+		t.Fatalf("overwrite: %q %s", body, &output)
+	}
+}

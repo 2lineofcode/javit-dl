@@ -50,7 +50,7 @@ func (d *downloader) downloadAsset(ctx context.Context, a asset, dir string) err
 	return d.retry(ctx, func() error {
 		attemptCtx, cancel := context.WithTimeout(ctx, d.Timeout)
 		defer cancel()
-		return publish(out, func(f *os.File) error {
+		return publish(out, false, func(f *os.File) error {
 			_, err := d.request(attemptCtx, a, f)
 			return err
 		})
@@ -201,7 +201,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 	if err := os.WriteFile(manifest, []byte(p.text), 0600); err != nil {
 		return err
 	}
-	err = publish(out, func(f *os.File) error {
+	err = publish(out, d.overwrite == out || d.overwrite == d.Out, func(f *os.File) error {
 		fmt.Fprintln(d.progress, "Remuxing to MP4...")
 		// All network resources have been validated and saved. FFmpeg only reads this job's
 		// local playlist, handles AES sequence IVs/key rotation and fMP4, then remuxes to MP4.

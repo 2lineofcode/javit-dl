@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 )
 
@@ -79,7 +81,7 @@ func TestExtractBrowser(t *testing.T) {
 		case "/":
 			http.SetCookie(w, &http.Cookie{Name: "session", Value: "test", Path: "/", HttpOnly: true})
 			w.Header().Set("Content-Type", "text/html")
-			io.WriteString(w, `<script>setTimeout(()=>fetch('/api/playlist?token=a%2Fb'),100);setTimeout(()=>fetch('/api/playlist?token=a%2Fb'),300);setTimeout(()=>fetch('/movie.mp4?token=a%2Fb'),600)</script>`)
+			io.WriteString(w, `<title>Captured Video</title><script>setTimeout(()=>fetch('/api/playlist?token=a%2Fb'),100);setTimeout(()=>fetch('/api/playlist?token=a%2Fb'),300);setTimeout(()=>fetch('/movie.mp4?token=a%2Fb'),600)</script>`)
 		case "/api/playlist":
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 			io.WriteString(w, "#EXTM3U\n#EXT-X-ENDLIST\n")
@@ -110,9 +112,12 @@ func TestExtractBrowser(t *testing.T) {
 		go func() { fmt.Fprintln(writer, "invalid"); fmt.Fprintln(writer, "2") }()
 	}}
 	var candidates []Media
-	err := extractSession(ctx, browser, Options{URL: server.URL + "/", Out: out, Temp: t.TempDir(), Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{OnMedia: func(media []Media) { candidates = media }}, input, observed, &stderr)
+	err := extractSession(ctx, browser, Options{URL: server.URL + "/", Out: out, Temp: t.TempDir(), Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{AutoFilename: true, OnOutput: func(path string) { out = path }, OnMedia: func(media []Media) { candidates = media }}, input, observed, &stderr)
 	if err != nil {
 		t.Fatalf("extract: %v; %s", err, &stderr)
+	}
+	if filepath.Base(out) != "Captured Video.mp4" {
+		t.Fatalf("page title was not used: %s", out)
 	}
 	if len(candidates) != 2 || candidates[0].Index != 1 || candidates[0].Kind != "HLS" || candidates[1].Kind != "FILE" || !strings.Contains(candidates[1].URL, "token=a%2Fb") {
 		t.Fatalf("GUI candidates: %+v", candidates)
@@ -414,4 +419,170 @@ func isolateExtractProfile(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return wrapper
+}
+
+func TestExtractedOutput(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct{ title, kind, uri, want string }{
+		{` Movie: A/B? `, "HLS", "https://cdn.test/master.m3u8", "Movie_ A_B_.mp4"},
+		{"", "HLS", "", "video.mp4"},
+		{"...", "HLS", "", "video.mp4"},
+		{"Just a moment...", "HLS", "", "video.mp4"},
+		{"Judul 日本語", "FILE", "https://cdn.test/movie.webm?token=a", "Judul 日本語.webm"},
+	} {
+		got, err := extractedOutput(filepath.Join(dir, "output.mp4"), tc.title, mediaURL{Kind: tc.kind, URL: tc.uri})
+		if err != nil || got != filepath.Join(dir, tc.want) {
+			t.Fatalf("%q: got %q, %v", tc.title, got, err)
+		}
+	}
+	original := filepath.Join(dir, "Movie.mp4")
+	if err := os.WriteFile(original, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := extractedOutput(filepath.Join(dir, "output.mp4"), "Movie", mediaURL{Kind: "HLS"})
+	if err != nil || filepath.Base(got) != "Movie (2).mp4" {
+		t.Fatalf("collision: %q %v", got, err)
+	}
+	got, err = extractedOutput(filepath.Join(dir, "output.mp4"), strings.Repeat("界", 100), mediaURL{Kind: "HLS"})
+	if err != nil || len(filepath.Base(got)) > 204 {
+		t.Fatalf("long title: %q %v", got, err)
+	}
+}
+
+func TestExtractPopups(t *testing.T) {
+	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
+		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	}
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			alloc, stop := chromedp.NewExecAllocator(ctx, chromedp.DefaultExecAllocatorOptions[:]...)
+			defer stop()
+			browser, closeBrowser := chromedp.NewContext(alloc)
+			defer closeBrowser()
+			var checked atomic.Int32
+			var newTab atomic.Value
+			newTab.Store("")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/":
+					w.Header().Set("Content-Type", "text/html")
+					io.WriteString(w, `<iframe src="/player"></iframe><script>const popup=window.open('/popup');setTimeout(()=>fetch('/check?open='+(!!popup&&!popup.closed)),1200)</script>`)
+				case "/player":
+					id, err := target.CreateTarget("http://" + r.Host + "/tab").Do(cdp.WithExecutor(ctx, chromedp.FromContext(browser).Browser))
+					if err != nil {
+						t.Errorf("create tab without opener: %v", err)
+					}
+					newTab.Store(string(id))
+					w.Header().Set("Content-Type", "text/html")
+					io.WriteString(w, `<script>setTimeout(()=>fetch('/movie.mp4'),500)</script>`)
+				case "/popup", "/tab":
+					w.Header().Set("Content-Type", "text/html")
+					io.WriteString(w, "Advertisement")
+				case "/check":
+					checked.Add(1)
+					targets, err := target.GetTargets().Do(cdp.WithExecutor(ctx, chromedp.FromContext(browser).Browser))
+					if err != nil {
+						t.Errorf("inspect new tab: %v", err)
+					}
+					open := false
+					for _, info := range targets {
+						if string(info.TargetID) == newTab.Load().(string) {
+							open = true
+							if info.OpenerID != "" {
+								t.Error("test tab unexpectedly has an opener")
+							}
+						}
+					}
+					if newTab.Load().(string) == "" || open != allow {
+						t.Errorf("new tab open=%v, allow=%v", open, allow)
+					}
+					if r.URL.Query().Get("open") != fmt.Sprint(allow) {
+						t.Errorf("popup open=%s, allow=%v", r.URL.Query().Get("open"), allow)
+					}
+					w.WriteHeader(http.StatusNoContent)
+				case "/movie.mp4":
+					w.Header().Set("Content-Type", "video/mp4")
+					io.WriteString(w, "iframe media")
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			var output, stderr bytes.Buffer
+			out := filepath.Join(t.TempDir(), "movie.mp4")
+			err := extractSession(ctx, browser, Options{URL: server.URL + "/", Out: out, Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{Headless: true, CaptureDuration: 2 * time.Second, AllowPopups: allow}, strings.NewReader("1\n"), &output, &stderr)
+			if err != nil {
+				t.Fatalf("%v\n%s\n%s", err, &output, &stderr)
+			}
+			body, err := os.ReadFile(out)
+			if err != nil || string(body) != "iframe media" || checked.Load() != 1 {
+				t.Fatalf("player/popup check: %q %v checks=%d", body, err, checked.Load())
+			}
+		})
+	}
+}
+
+func TestExtractEarlyCrossOriginHLS(t *testing.T) {
+	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
+		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	}
+	for _, nested := range []bool{false, true} {
+		t.Run(fmt.Sprintf("nested=%v", nested), func(t *testing.T) {
+			playlist := func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+				io.WriteString(w, "#EXTM3U\n#EXT-X-ENDLIST\n")
+			}
+			inner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/signed-stream" {
+					playlist(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/html")
+				io.WriteString(w, `<script>fetch('/signed-stream')</script>`)
+			}))
+			defer inner.Close()
+			player := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/master.m3u8" {
+					playlist(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/html")
+				io.WriteString(w, `<script>fetch('/master.m3u8')</script>`)
+				if nested {
+					fmt.Fprintf(w, `<iframe src="%s"></iframe>`, inner.URL)
+				}
+			}))
+			defer player.Close()
+			playerURL := strings.Replace(player.URL, "127.0.0.1", "localhost", 1)
+			site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				fmt.Fprintf(w, `<iframe src="%s"></iframe>`, playerURL)
+			}))
+			defer site.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("site-per-process", true))
+			alloc, stop := chromedp.NewExecAllocator(ctx, opts...)
+			defer stop()
+			browser, closeBrowser := chromedp.NewContext(alloc)
+			defer closeBrowser()
+			var output, stderr bytes.Buffer
+			var captured []Media
+			err := extractSession(ctx, browser, Options{URL: site.URL, Out: filepath.Join(t.TempDir(), "output.mp4"), Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{Headless: true, CaptureDuration: time.Second, OnMedia: func(items []Media) { captured = items }}, strings.NewReader("q\n"), &output, &stderr)
+			expected := 1
+			if nested {
+				expected = 2
+			}
+			if err != nil || len(captured) != expected || stderr.Len() != 0 {
+				t.Fatalf("first cross-origin playlists lost: %v\n%s\n%s", err, &output, &stderr)
+			}
+			for _, item := range captured {
+				if item.Kind != "HLS" {
+					t.Fatalf("wrong media kind: %+v", item)
+				}
+			}
+		})
+	}
 }

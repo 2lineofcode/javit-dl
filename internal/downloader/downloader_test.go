@@ -34,7 +34,7 @@ func TestInteractiveCancellation(t *testing.T) {
 
 func TestPublishDoesNotOverwrite(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "output")
-	err := publish(out, func(f *os.File) error {
+	err := publish(out, false, func(f *os.File) error {
 		if _, err := f.WriteString("new download"); err != nil {
 			return err
 		}
@@ -50,6 +50,48 @@ func TestPublishDoesNotOverwrite(t *testing.T) {
 	files, _ := os.ReadDir(filepath.Dir(out))
 	if len(files) != 1 {
 		t.Fatalf("partial files were not cleaned: %v", files)
+	}
+}
+
+func TestOverwriteConfirmation(t *testing.T) {
+	for _, answer := range []string{"y\n", "YES\n", "n\n", "\n", "", "yes\npartial"} {
+		t.Run(strings.ReplaceAll(answer, "\n", "_"), func(t *testing.T) {
+			accepted := strings.HasPrefix(strings.ToLower(answer), "y")
+			failed := strings.Contains(answer, "partial")
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if failed {
+					w.Header().Set("Content-Length", "100")
+				}
+				io.WriteString(w, "replacement")
+			}))
+			defer server.Close()
+			out := filepath.Join(t.TempDir(), "existing.bin")
+			if err := os.WriteFile(out, []byte("original"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			o := testOptions()
+			o.URL, o.Out, o.Raw, o.PromptOverwrite = server.URL, out, true, true
+			var output strings.Builder
+			err := Download(context.Background(), o, strings.NewReader(answer), &output, io.Discard)
+			want := "original"
+			if accepted && !failed {
+				want = "replacement"
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil {
+				t.Fatal("declined or failed overwrite succeeded")
+			}
+			data, _ := os.ReadFile(out)
+			if string(data) != want || !strings.Contains(output.String(), "Overwrite? [y/N]") {
+				t.Fatalf("confirmation/output: %q, %s", data, output.String())
+			}
+			if !accepted && requests.Load() != 0 {
+				t.Fatal("download started before overwrite consent")
+			}
+		})
 	}
 }
 
@@ -75,7 +117,7 @@ func TestRawCancellationAndFailure(t *testing.T) {
 	defer cancel()
 	d.URL = server.URL
 	result := make(chan error, 1)
-	go func() { result <- publish(out, func(f *os.File) error { return d.fetchRaw(ctx, f) }) }()
+	go func() { result <- publish(out, false, func(f *os.File) error { return d.fetchRaw(ctx, f) }) }()
 	<-started
 	cancel()
 	if err := <-result; !errors.Is(err, context.Canceled) {
@@ -85,7 +127,7 @@ func TestRawCancellationAndFailure(t *testing.T) {
 		t.Fatal("partial output published")
 	}
 	d.URL = server.URL + "/missing"
-	if err := publish(out, func(f *os.File) error { return d.fetchRaw(context.Background(), f) }); err == nil {
+	if err := publish(out, false, func(f *os.File) error { return d.fetchRaw(context.Background(), f) }); err == nil {
 		t.Fatal("404 accepted")
 	}
 	files, _ := os.ReadDir(filepath.Dir(out))

@@ -22,7 +22,7 @@ func isYouTubeURL(u *url.URL) bool {
 	return false
 }
 
-func downloadYouTube(ctx context.Context, o Options, output, stderr io.Writer) error {
+func downloadYouTube(ctx context.Context, o Options, input io.Reader, output, stderr io.Writer) error {
 	u, err := parseHTTPURL(o.URL)
 	if err != nil {
 		return err
@@ -41,7 +41,7 @@ func downloadYouTube(ctx context.Context, o Options, output, stderr io.Writer) e
 		return errors.New("provide a single YouTube video URL; playlists and channels are unsupported")
 	}
 	o.Out = strings.TrimSuffix(o.Out, filepath.Ext(o.Out)) + ".mp4"
-	if err := checkOutput(o.Out); err != nil {
+	if err := o.prepareOutput(ctx, input, output); err != nil {
 		return err
 	}
 	ytdlp, err := exec.LookPath("yt-dlp")
@@ -111,7 +111,7 @@ func downloadYouTube(ctx context.Context, o Options, output, stderr io.Writer) e
 		return err
 	}
 	defer f.Close()
-	if err := publishFile(f, o.Out); err != nil {
+	if err := publishFile(f, o.Out, o.overwrite == o.Out); err != nil {
 		return err
 	}
 	fmt.Fprintf(output, "Downloaded %s (%s)\n", o.Out, time.Since(start).Round(time.Millisecond))

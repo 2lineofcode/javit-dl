@@ -30,7 +30,7 @@ Examples:
 
 To discover media interactively, use extract <website-URL>.
 To choose a type manually, use hls <URL>, file <URL> or youtube <URL>.
-YouTube requires yt-dlp and FFmpeg; HLS requires FFmpeg. Existing files are never overwritten.`
+YouTube requires yt-dlp and FFmpeg; HLS requires FFmpeg. Existing files require confirmation before replacement.`
 
 const hlsExamples = `Download a finished HLS playlist as MP4. FFmpeg must be in PATH.
 Replace the example URLs with your own links.
@@ -51,7 +51,7 @@ Examples:
   Send headers required by the source website:
     ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
 
-Existing files are never overwritten. Press Ctrl+C to cancel.
+Existing files require confirmation before replacement. Press Ctrl+C to cancel.
 Completed HLS resources are kept for resume.`
 
 const fileExamples = `Download one HTTP(S) file unchanged. FFmpeg is not required.
@@ -67,7 +67,7 @@ Examples:
   Send headers required by the source website:
     ./javit_dl file 'https://example.com/video.mp4' -o video.mp4 --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
 
-Existing files are never overwritten. Press Ctrl+C to cancel.
+Existing files require confirmation before replacement. Press Ctrl+C to cancel.
 Incomplete files are removed; file downloads restart from the beginning.`
 
 const youtubeExamples = `Download one YouTube video as H.264 + AAC MP4 using yt-dlp and FFmpeg.
@@ -83,7 +83,7 @@ Examples:
 
 Watch, Shorts, live video links and embedded video URLs are supported.
 H.264/AAC must be available; other codecs are not selected.
-Playlists and channels are unsupported. Existing files are never overwritten.
+Playlists and channels are unsupported. Existing files require confirmation before replacement.
 Press Ctrl+C to cancel; temporary YouTube files are removed on failure.`
 
 const extractExamples = `Capture media URLs in Chrome/Chromium, visibly or with --headless.
@@ -112,7 +112,7 @@ Headless capture lasts 5 seconds by default. Capture/download failures retry onc
 in a visible browser; play the video and choose a fresh media number.
 Browser sessions are saved automatically per site.
 Cloudflare verification in headless mode opens a visible browser for you to complete.
-Existing files are never overwritten. Press Ctrl+C to cancel.`
+Existing files require confirmation before replacement. Press Ctrl+C to cancel.`
 
 // Run parses CLI arguments excluding the program name and executes the command.
 func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer) error {
@@ -128,7 +128,9 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 			return fmt.Errorf("provide exactly one HTTP(S) URL; see javit_dl --help")
 		}
 		o.URL = cmd.Args().First()
+		o.PromptOverwrite = true
 		if cmd.Name == "extract" {
+			extraction.AutoFilename = !cmd.IsSet("out")
 			if !cmd.IsSet("user-agent") {
 				o.UserAgent = ""
 			}
@@ -152,6 +154,7 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		&urfave.BoolFlag{Name: "auto", Local: true, Destination: &o.Auto, Usage: "Select highest-bandwidth variant without prompting"},
 	}
 	extractFlags := append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &extraction.Browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"},
+		&urfave.BoolFlag{Name: "allow-popups", Local: true, Destination: &extraction.AllowPopups, Usage: "Allow popups and new tabs for login or players (closed by default)"},
 		&urfave.BoolFlag{Name: "headless", Local: true, Destination: &extraction.Headless, Usage: "Capture media without a browser window, then choose in the terminal"},
 		&urfave.DurationFlag{Name: "capture-duration", Value: 5 * time.Second, Local: true, Destination: &extraction.CaptureDuration, Usage: "Headless capture time after navigation (must be positive)"},
 		&urfave.StringFlag{Name: "play-selector", Local: true, Destination: &extraction.PlaySelector, Usage: "CSS selector to click once during headless capture; default tries native video/audio playback"})
@@ -236,7 +239,7 @@ func guiValues(cmd *urfave.Command) (map[string]any, error) {
 		return nil, fmt.Errorf("--startdownload requires -u/--url")
 	}
 	mode := cmd.String("mode")
-	for _, name := range []string{"browser", "headless", "capture-duration", "play-selector"} {
+	for _, name := range []string{"browser", "headless", "capture-duration", "play-selector", "allow-popups"} {
 		if cmd.IsSet(name) {
 			if !cmd.IsSet("mode") {
 				mode = "extract"
@@ -257,7 +260,7 @@ func guiValues(cmd *urfave.Command) (map[string]any, error) {
 	if cmd.IsSet("mode") || mode != "auto" {
 		initial["mode"] = mode
 	}
-	for flag, field := range map[string]string{"startdownload": "startDownload", "url": "url", "out": "out", "retries": "retries", "user-agent": "userAgent", "referer": "referer", "concurrency": "concurrency", "temp": "temp", "auto": "auto", "browser": "browser", "headless": "headless", "play-selector": "playSelector"} {
+	for flag, field := range map[string]string{"startdownload": "startDownload", "url": "url", "out": "out", "retries": "retries", "user-agent": "userAgent", "referer": "referer", "concurrency": "concurrency", "temp": "temp", "auto": "auto", "browser": "browser", "headless": "headless", "play-selector": "playSelector", "allow-popups": "allowPopups"} {
 		if cmd.IsSet(flag) {
 			initial[field] = cmd.Value(flag)
 		}

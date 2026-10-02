@@ -7,8 +7,9 @@ Download YouTube videos, HLS (`.m3u8`) streams, and direct files through a deskt
 - Desktop interface with download progress, quality selection, and cancellation.
 - YouTube and HLS downloads saved as MP4; direct files saved unchanged.
 - Browser extraction with saved login sessions per website.
+- Extracted videos use the page title as the filename by default. In the GUI, disable **Use page title as filename** or enter a custom name; in the CLI, pass `-o` to keep your chosen name. Existing names receive a numbered suffix.
 - Resume interrupted HLS downloads when the source and settings remain unchanged.
-- Existing files are never overwritten.
+- The terminal asks before overwriting an existing file; replacement happens only after a successful download. The desktop app preserves existing files.
 
 ## Setup (macOS)
 
@@ -107,6 +108,7 @@ Passing a URL without a command automatically detects YouTube, HLS, or a direct 
 | `--user-agent <value>` | Custom browser identification for requests |
 | `--referer <URL>` | Source page address required by some websites |
 | `--browser <path>` | Chrome/Chromium executable for extraction; auto-detected by default |
+| `--allow-popups` | Allow popups and new tabs needed for login or external players; extraction closes all extra tabs by default |
 | `--headless` | Extract without a browser window; media selection still happens in the terminal |
 | `--capture-duration <duration>` | Background capture time; defaults to `5s` |
 | `--play-selector <selector>` | Website play button to click during background capture |

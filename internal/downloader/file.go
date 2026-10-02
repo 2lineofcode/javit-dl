@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 )
 
-// Publish a complete file without ever replacing an existing destination, even in a race.
-// Staging on the destination filesystem makes the hard link atomic.
-func publish(out string, write func(*os.File) error) error {
+// Stage on the destination filesystem; replace only after explicit confirmation.
+func publish(out string, overwrite bool, write func(*os.File) error) error {
 	f, err := os.CreateTemp(filepath.Dir(out), ".javit-dl-*")
 	if err != nil {
 		return err
@@ -18,16 +17,22 @@ func publish(out string, write func(*os.File) error) error {
 	if err := write(f); err != nil {
 		return err
 	}
-	return publishFile(f, out)
+	return publishFile(f, out, overwrite)
 }
 
-// Publish a completed staging file without copying or replacing the destination.
-func publishFile(f *os.File, out string) error {
+// Hard-link new files without clobbering; atomically rename confirmed replacements.
+func publishFile(f *os.File, out string, overwrite bool) error {
 	if err := f.Sync(); err != nil {
 		return err
 	}
 	if err := f.Close(); err != nil {
 		return err
+	}
+	if overwrite {
+		if err := os.Rename(f.Name(), out); err != nil {
+			return fmt.Errorf("replace %s: %w", out, err)
+		}
+		return nil
 	}
 	if err := os.Link(f.Name(), out); err != nil {
 		return fmt.Errorf("publish %s: %w", out, err)

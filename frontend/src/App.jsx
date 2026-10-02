@@ -43,7 +43,7 @@ function Choices({ state, select, pending }) {
 function Activity({ state }) {
   const log = useRef(null);
   useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight; }, [state.logs]);
-  const percent = state.progress?.match(/Resources:\s*(\d+)%/)?.[1];
+  const percent = state.progress?.match(/(?:Downloading:|\[download\])\s*(\d+(?:\.\d+)?)%/)?.[1];
   return <section className="card activity">
     <div className="section-heading"><h2>Activity</h2><span className={`status ${state.status === 'Failed' ? 'failed' : ''}`} role="status"><i className={state.active ? 'working' : ''} />{state.status}</span></div>
     <p className="progress-text">{state.progress || (state.active ? 'Working…' : 'Ready to download.')}</p>
@@ -54,6 +54,8 @@ function Activity({ state }) {
 }
 
 export default function App() {
+  const form = useRef(null);
+  const autoStarted = useRef(false);
   const [request, setRequest] = useState(initial);
   const [state, setState] = useState({ active: false, status: 'Ready', logs: [], choices: [] });
   const [error, setError] = useState('');
@@ -79,6 +81,12 @@ export default function App() {
     timer = setTimeout(poll, 250);
     return () => { stopped = true; clearTimeout(timer); };
   }, [state.active]);
+  useEffect(() => {
+    if (ready && request.startDownload && !autoStarted.current) {
+      autoStarted.current = true;
+      form.current?.requestSubmit();
+    }
+  }, [ready, request.startDownload]);
   const perform = async (action) => {
     setPending(true); setError('');
     try { await action(); await refresh(); } catch (e) { setError(String(e)); }
@@ -88,7 +96,7 @@ export default function App() {
   const savePath = () => perform(async () => { const path = await call('SavePath', request.out); if (path) set('out', path); });
   return <main>
     <header><div className="app-icon" aria-hidden="true">↓</div><h1>JavIt Downloader</h1></header>
-    <form className="card download-form" onSubmit={start}>
+    <form ref={form} className="card download-form" onSubmit={start}>
       <fieldset disabled={!ready || pending || state.active}>
         <div className="section-heading"><h2>New download</h2><label className="mode"><span className="sr-only">Download mode</span><select value={request.mode} onChange={(e) => set('mode', e.target.value)}>{modes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
         <Field label={request.mode === 'extract' ? 'Website URL' : 'Download URL'} type="url" required placeholder="https://…" value={request.url} onChange={(e) => set('url', e.target.value)} />

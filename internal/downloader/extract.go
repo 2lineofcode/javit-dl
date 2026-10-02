@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -75,7 +76,17 @@ func Extract(ctx context.Context, o Options, x ExtractOptions, input io.Reader, 
 	defer cancelSession()
 	input = &extractionInput{Reader: input, lines: make(chan string), errors: make(chan error, 1)}
 	run := func(headless bool) error {
-		opts := []chromedp.ExecAllocatorOption{chromedp.NoFirstRun, chromedp.NoDefaultBrowserCheck, chromedp.UserDataDir(profile), chromedp.Flag("remote-debugging-address", "127.0.0.1"), chromedp.Flag("no-sandbox", false)}
+		// Chrome marks even a visible browser as automated when the debugging port is 0.
+		// Reserve an available loopback port instead; Chrome must bind it after we close it.
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return fmt.Errorf("allocate extraction browser port: %w", err)
+		}
+		port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+		if err := listener.Close(); err != nil {
+			return fmt.Errorf("release extraction browser port: %w", err)
+		}
+		opts := []chromedp.ExecAllocatorOption{chromedp.NoFirstRun, chromedp.NoDefaultBrowserCheck, chromedp.UserDataDir(profile), chromedp.Flag("remote-debugging-address", "127.0.0.1"), chromedp.Flag("remote-debugging-port", port), chromedp.Flag("no-sandbox", false)}
 		if headless {
 			opts = append(opts, chromedp.Headless, chromedp.Flag("autoplay-policy", "no-user-gesture-required"))
 		}
@@ -225,7 +236,7 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 	if x.Headless {
 		fmt.Fprintf(output, "Capturing media in the background for %s...\n", x.CaptureDuration)
 	} else {
-		fmt.Fprintln(output, "Play a video or navigate in the extraction browser. HLS playlists appear as [HLS].\nEnter a media number to download, list to show results, or q to quit.")
+		fmt.Fprintln(output, "Complete any login or human verification in the extraction browser, then play the video. Your browser session is saved automatically. HLS playlists appear as [HLS].\nEnter a media number to download, list to show results, or q to quit.")
 	}
 	stream, ok := input.(*extractionInput)
 	if !ok {

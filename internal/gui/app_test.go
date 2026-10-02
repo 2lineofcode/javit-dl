@@ -141,10 +141,15 @@ func TestSelectionAndBoundedState(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		fmt.Fprintln(a, "activity")
 	}
-	fmt.Fprint(a, "\rResources: 50% (5/10)")
+	fmt.Fprint(a, "\rDownloading: 50% (5/10) · 5.0 MiB · 1.2 MiB/s\n")
 	s = a.GetState()
-	if len(s.Logs) != 120 || s.Progress != "Resources: 50% (5/10)" {
+	if len(s.Logs) != 120 || s.Progress != "Downloading: 50% (5/10) · 5.0 MiB · 1.2 MiB/s" {
 		t.Fatalf("unbounded state: logs=%d progress=%q", len(s.Logs), s.Progress)
+	}
+	fmt.Fprint(a, "Preparing download\n\r[download] 25.0% · 2.0 MiB/s · ETA 00:03\n")
+	s = a.GetState()
+	if s.Progress != "[download] 25.0% · 2.0 MiB/s · ETA 00:03" || s.Logs[len(s.Logs)-1] != "Preparing download" {
+		t.Fatalf("coalesced YouTube output lost progress: %+v", s)
 	}
 }
 
@@ -190,7 +195,7 @@ func TestCLIFormDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cli.RunWithGUI(context.Background(), []string{"gui", "-u", "http://example.com/watch", "--headless", "-r", "0", "--auto=false", "--timeout", "1m"}, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { a.initial = initial; return nil })
+	err = cli.RunWithGUI(context.Background(), []string{"gui", "-u", "http://example.com/watch", "--startdownload", "--headless", "-r", "0", "--auto=false", "--timeout", "1m"}, strings.NewReader(""), io.Discard, io.Discard, func(_ context.Context, initial map[string]any) error { a.initial = initial; return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +203,7 @@ func TestCLIFormDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.URL != "http://example.com/watch" || r.Mode != "extract" || !r.Headless || r.Retries != 0 || r.Auto || r.Timeout != 60 || r.Out != defaults.Out || r.Temp != defaults.Temp || r.CaptureDuration != defaults.CaptureDuration || r.UserAgent != "" {
+	if !r.StartDownload || r.URL != "http://example.com/watch" || r.Mode != "extract" || !r.Headless || r.Retries != 0 || r.Auto || r.Timeout != 60 || r.Out != defaults.Out || r.Temp != defaults.Temp || r.CaptureDuration != defaults.CaptureDuration || r.UserAgent != "" {
 		t.Fatalf("defaults=%+v", r)
 	}
 	if a.GetState().Active {

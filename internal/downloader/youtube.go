@@ -63,6 +63,7 @@ func downloadYouTube(ctx context.Context, o Options, output, stderr io.Writer) e
 	}
 	args := []string{
 		"--ignore-config", "--no-plugin-dirs", "--no-playlist", "--abort-on-error", "--abort-on-unavailable-fragments", "--no-overwrites", "--newline",
+		"--progress", "--progress-delta", "1", "--progress-template", "download:\r[download] %(progress._percent_str)s · %(progress._speed_str)s · ETA %(progress._eta_str)s",
 		"--format", "bv[vcodec^=avc1]+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]", "--merge-output-format", "mp4", "--remux-video", "mp4",
 		"--output", "video.%(ext)s", "--ffmpeg-location", ffmpeg,
 		"--retries", strconv.Itoa(o.Retries), "--fragment-retries", strconv.Itoa(o.Retries), "--extractor-retries", strconv.Itoa(o.Retries),

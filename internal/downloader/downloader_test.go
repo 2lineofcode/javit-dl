@@ -106,7 +106,7 @@ func TestPlaylistParsing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.segments != 2 || len(p.assets) != 3 {
-		t.Fatalf("bad resources: %+v", p)
+		t.Fatalf("bad Downloading: %+v", p)
 	}
 	if p.assets[0].uri != "https://example.com/path/key?k=a,b" || p.assets[1].uri != "https://example.com/path/a.ts?token=segment" || p.assets[2].uri != "https://example.com/path/b.ts" {
 		t.Fatalf("bad URL resolution: %+v", p.assets)

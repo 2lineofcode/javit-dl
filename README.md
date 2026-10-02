@@ -54,10 +54,11 @@ Prefill the desktop form from the terminal:
 
 ```sh
 ./javit_dl gui -u 'http://domain.zxc' -o movie.mp4 --auto
+./javit_dl gui -u 'https://example.com/video.mp4' -o movie.mp4 --startdownload
 ./javit_dl gui -u 'https://example.com/watch' --mode extract --headless --capture-duration 20s
 ```
 
-GUI parameters fill the form without starting a download. Omitted options retain desktop defaults, including the Downloads output path and HLS cache folder. Use `--mode auto|hls|file|youtube|extract` to choose a mode; extraction options select `extract` when `--mode` is omitted. Use `--auto=false` for manual HLS quality. GUI timeout/capture durations must be whole seconds (for example `30s` or `1m`).
+GUI parameters fill the form. Add `--startdownload` to submit the form once when it is ready, using the same validation and action as **Start download**; this flag requires `-u`/`--url`. Without it, start manually. Omitted options retain desktop defaults, including the Downloads output path and HLS cache folder. Use `--mode auto|hls|file|youtube|extract` to choose a mode; extraction options select `extract` when `--mode` is omitted. Use `--auto=false` for manual HLS quality. GUI timeout/capture durations must be whole seconds (for example `30s` or `1m`).
 
 ## Terminal usage
 

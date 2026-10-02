@@ -61,10 +61,11 @@ func (d *downloader) downloadAssets(ctx context.Context, assets []asset, dir str
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	jobs := make(chan asset)
+	d.bytes = startByteProgress(d.progress, len(assets))
+	defer func() { d.bytes.stop(); d.bytes = nil }()
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
-	done := 0
 	for i := 0; i < min(d.Concurrency, len(assets)); i++ {
 		wg.Go(func() {
 			for a := range jobs {
@@ -76,8 +77,7 @@ func (d *downloader) downloadAssets(ctx context.Context, assets []asset, dir str
 						cancel()
 					}
 				} else {
-					done++
-					fmt.Fprintf(d.progress, "\rResources: %3d%% (%d/%d)", done*100/len(assets), done, len(assets))
+					d.bytes.done.Add(1)
 				}
 				mu.Unlock()
 			}
@@ -93,7 +93,6 @@ loop:
 	}
 	close(jobs)
 	wg.Wait()
-	fmt.Fprintln(d.progress)
 	if firstErr != nil {
 		return firstErr
 	}

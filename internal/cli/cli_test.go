@@ -367,6 +367,8 @@ func TestGUIParameters(t *testing.T) {
 		want map[string]any
 	}{
 		{[]string{"gui"}, map[string]any{}},
+		{[]string{"gui", "-u", "http://example.com/video", "--startdownload"}, map[string]any{"url": "http://example.com/video", "startDownload": true}},
+		{[]string{"gui", "--startdownload=false"}, map[string]any{"startDownload": false}},
 		{[]string{"gui", "-u", "https://example.com/watch?token=a%2Fb", "-o", "movie.mp4", "-c", "4", "-r", "0", "--timeout", "45s", "--auto=false", "--headless", "--capture-duration", "20s", "--play-selector", ".play", "--browser", "/path/to/chrome", "--temp", "cache", "--user-agent", "Custom UA", "--referer", "https://example.com/"}, map[string]any{"url": "https://example.com/watch?token=a%2Fb", "out": "movie.mp4", "concurrency": 4, "retries": 0, "timeout": 45, "auto": false, "headless": true, "captureDuration": 20, "playSelector": ".play", "browser": "/path/to/chrome", "temp": "cache", "userAgent": "Custom UA", "referer": "https://example.com/", "mode": "extract"}},
 		{[]string{"gui", "--url", "http://example.com/video", "--mode", "file"}, map[string]any{"url": "http://example.com/video", "mode": "file"}},
 	} {
@@ -378,7 +380,7 @@ func TestGUIParameters(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"gui", "-u"}, {"gui", "-x"}, {"gui", "--mode", "invalid"}, {"gui", "--timeout", "500ms"}, {"gui", "--timeout", "1500ms"}, {"gui", "--capture-duration", "2h"}, {"gui", "--mode", "file", "--headless"}, {"gui", "--play-selector", ".play"}} {
+	for _, args := range [][]string{{"gui", "--startdownload"}, {"gui", "-u", " ", "--startdownload"}, {"gui", "-u"}, {"gui", "-x"}, {"gui", "--mode", "invalid"}, {"gui", "--timeout", "500ms"}, {"gui", "--timeout", "1500ms"}, {"gui", "--capture-duration", "2h"}, {"gui", "--mode", "file", "--headless"}, {"gui", "--play-selector", ".play"}} {
 		called := false
 		err := RunWithGUI(context.Background(), args, strings.NewReader(""), io.Discard, io.Discard, func(context.Context, map[string]any) error { called = true; return nil })
 		if err == nil || called {

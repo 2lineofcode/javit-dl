@@ -18,6 +18,7 @@ import (
 
 // Request contains editable GUI settings. Downloader validation remains authoritative.
 type Request struct {
+	StartDownload   bool   `json:"startDownload"`
 	URL             string `json:"url"`
 	Out             string `json:"out"`
 	Mode            string `json:"mode"`
@@ -263,11 +264,12 @@ func (a *App) Write(p []byte) (int, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	// Progress uses carriage returns; keep only the latest value rather than a growing log.
-	if len(p) > 0 && p[0] == '\r' {
-		a.state.Progress = strings.TrimSpace(string(p))
-		return len(p), nil
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(p)), "\n") {
+	for _, line := range strings.Split(string(p), "\n") {
+		if index := strings.LastIndexByte(line, '\r'); index >= 0 {
+			a.state.Progress = strings.TrimSpace(line[index+1:])
+			line = line[:index]
+		}
+		line = strings.TrimSpace(line)
 		if line != "" {
 			a.state.Logs = append(a.state.Logs, line[:min(len(line), 4096)])
 		}

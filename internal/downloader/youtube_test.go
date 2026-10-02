@@ -87,7 +87,7 @@ esac
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, want := range []string{"--ignore-config\n", "--no-plugin-dirs\n", "--no-playlist\n", "--abort-on-unavailable-fragments\n", "--extractor-retries\n0\n", "--format\nbv[vcodec^=avc1]+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]\n", "--remux-video\nmp4\n", "video.%(ext)s\n", "--retries\n0\n", "--socket-timeout\n5\n", "User-Agent:custom agent\n", "Referer:https://example.com/\n", "--\nhttps://youtu.be/BaW_jenozKc\n"} {
+				for _, want := range []string{"--progress\n", "--progress-delta\n1\n", "%(progress._speed_str)s", "--ignore-config\n", "--no-plugin-dirs\n", "--no-playlist\n", "--abort-on-unavailable-fragments\n", "--extractor-retries\n0\n", "--format\nbv[vcodec^=avc1]+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]\n", "--remux-video\nmp4\n", "video.%(ext)s\n", "--retries\n0\n", "--socket-timeout\n5\n", "User-Agent:custom agent\n", "Referer:https://example.com/\n", "--\nhttps://youtu.be/BaW_jenozKc\n"} {
 					if !strings.Contains(string(before), want) {
 						t.Errorf("missing yt-dlp args %q: %s", want, before)
 					}

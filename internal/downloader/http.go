@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +19,7 @@ type downloader struct {
 	Options
 	client   *http.Client
 	progress io.Writer
+	bytes    *byteProgress
 }
 
 func newDownloader(o Options, output io.Writer) *downloader {
@@ -26,7 +28,7 @@ func newDownloader(o Options, output io.Writer) *downloader {
 	transport.ResponseHeaderTimeout = o.Timeout
 	transport.MaxConnsPerHost = o.Concurrency
 	transport.MaxIdleConnsPerHost = o.Concurrency
-	return &downloader{o, &http.Client{Transport: transport, Jar: o.CookieJar}, output}
+	return &downloader{Options: o, client: &http.Client{Transport: transport, Jar: o.CookieJar}, progress: output}
 }
 
 var errHLS = errors.New("detected HLS playlist")
@@ -117,6 +119,9 @@ func (d *downloader) request(ctx context.Context, a asset, w io.Writer) (*url.UR
 	if limit > 0 {
 		reader = io.LimitReader(reader, limit+1)
 	}
+	if d.bytes != nil {
+		w = io.MultiWriter(w, d.bytes)
+	}
 	n, err := io.Copy(w, reader)
 	if err != nil {
 		return nil, err
@@ -144,12 +149,12 @@ func (d *downloader) fetchRaw(ctx context.Context, f *os.File) error {
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return err
 		}
-		counter := &byteProgress{out: d.progress}
+		counter := startByteProgress(d.progress, 0)
 		_, err := d.request(ctx, asset{uri: d.URL}, io.MultiWriter(f, counter))
+		counter.stop()
 		if errors.Is(err, errHLS) {
 			return err
 		}
-		fmt.Fprintf(d.progress, "\rDownloaded %d bytes\n", counter.n)
 		if err != nil {
 			return err
 		}
@@ -158,18 +163,67 @@ func (d *downloader) fetchRaw(ctx context.Context, f *os.File) error {
 }
 
 type byteProgress struct {
-	n    int64
-	last time.Time
-	out  io.Writer
+	n, done atomic.Int64
+	total   int
+	last    time.Time
+	lastN   int64
+	out     io.Writer
+	finish  chan struct{}
+	stopped chan struct{}
 }
 
 func (p *byteProgress) Write(b []byte) (int, error) {
-	p.n += int64(len(b))
-	if time.Since(p.last) >= 250*time.Millisecond {
-		fmt.Fprintf(p.out, "\rDownloading: %d bytes", p.n)
-		p.last = time.Now()
-	}
+	p.n.Add(int64(len(b)))
 	return len(b), nil
+}
+
+func startByteProgress(out io.Writer, total int) *byteProgress {
+	p := &byteProgress{out: out, total: total, last: time.Now(), finish: make(chan struct{}), stopped: make(chan struct{})}
+	go func() {
+		defer close(p.stopped)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				p.print(time.Now())
+			case <-p.finish:
+				if p.n.Load() > 0 || p.total > 0 {
+					p.print(time.Now())
+					fmt.Fprintln(p.out)
+				}
+				return
+			}
+		}
+	}()
+	return p
+}
+
+func (p *byteProgress) stop() {
+	close(p.finish)
+	<-p.stopped
+}
+
+func (p *byteProgress) print(now time.Time) {
+	n := p.n.Load()
+	speed := float64(n-p.lastN) / max(now.Sub(p.last).Seconds(), 0.001)
+	if p.total > 0 {
+		done := p.done.Load()
+		fmt.Fprintf(p.out, "\rDownloading: %3d%% (%d/%d) · %s · %s/s   ", done*100/int64(p.total), done, p.total, formatBytes(float64(n)), formatBytes(speed))
+	} else {
+		fmt.Fprintf(p.out, "\rDownloading: %s · %s/s   ", formatBytes(float64(n)), formatBytes(speed))
+	}
+	p.last, p.lastN = now, n
+}
+
+func formatBytes(n float64) string {
+	for _, unit := range []string{"B", "KiB", "MiB", "GiB", "TiB"} {
+		if n < 1024 || unit == "TiB" {
+			return fmt.Sprintf("%.1f %s", n, unit)
+		}
+		n /= 1024
+	}
+	return ""
 }
 
 func (d *downloader) fetchPlaylist(ctx context.Context, uri string) (string, *url.URL, error) {

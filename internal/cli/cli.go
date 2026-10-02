@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"javit_dl/internal/downloader"
@@ -198,10 +199,11 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		},
 		Commands: []*urfave.Command{
 			{Name: "gui", Usage: "Open the desktop interface with optional form values", ArgsUsage: " ",
-				Description: "Options prefill the form; click Start download to begin.\n\nExamples:\n  ./javit_dl gui -u https://example.com/video -o movie.mp4 --auto\n  ./javit_dl gui -u https://example.com/watch --mode extract --headless\n  ./javit_dl gui --help",
+				Description: "Options prefill the form; use --startdownload to begin automatically.\n\nExamples:\n  ./javit_dl gui -u https://example.com/video -o movie.mp4 --auto\n  ./javit_dl gui -u https://example.com/watch --mode extract --headless\n  ./javit_dl gui --help",
 				Flags: append(guiFlags,
 					&urfave.StringFlag{Name: "url", Aliases: []string{"u"}, Local: true, Usage: "URL to prefill in the desktop form"},
-					&urfave.StringFlag{Name: "mode", Value: "auto", Local: true, Usage: "Download mode: auto, hls, file, youtube, extract"}),
+					&urfave.StringFlag{Name: "mode", Value: "auto", Local: true, Usage: "Download mode: auto, hls, file, youtube, extract"},
+					&urfave.BoolFlag{Name: "startdownload", Local: true, Usage: "Start downloading when the desktop form is ready; requires --url"}),
 				Action: func(ctx context.Context, cmd *urfave.Command) error {
 					if cmd.NArg() != 0 {
 						return fmt.Errorf("use gui -u <URL>; positional arguments are not accepted")
@@ -230,6 +232,9 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 // guiValues forwards only explicit flags, preserving the desktop defaults.
 func guiValues(cmd *urfave.Command) (map[string]any, error) {
 	initial := map[string]any{}
+	if cmd.Bool("startdownload") && strings.TrimSpace(cmd.String("url")) == "" {
+		return nil, fmt.Errorf("--startdownload requires -u/--url")
+	}
 	mode := cmd.String("mode")
 	for _, name := range []string{"browser", "headless", "capture-duration", "play-selector"} {
 		if cmd.IsSet(name) {
@@ -252,7 +257,7 @@ func guiValues(cmd *urfave.Command) (map[string]any, error) {
 	if cmd.IsSet("mode") || mode != "auto" {
 		initial["mode"] = mode
 	}
-	for flag, field := range map[string]string{"url": "url", "out": "out", "retries": "retries", "user-agent": "userAgent", "referer": "referer", "concurrency": "concurrency", "temp": "temp", "auto": "auto", "browser": "browser", "headless": "headless", "play-selector": "playSelector"} {
+	for flag, field := range map[string]string{"startdownload": "startDownload", "url": "url", "out": "out", "retries": "retries", "user-agent": "userAgent", "referer": "referer", "concurrency": "concurrency", "temp": "temp", "auto": "auto", "browser": "browser", "headless": "headless", "play-selector": "playSelector"} {
 		if cmd.IsSet(flag) {
 			initial[field] = cmd.Value(flag)
 		}

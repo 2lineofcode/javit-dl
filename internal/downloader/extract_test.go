@@ -250,7 +250,16 @@ func TestExtractSavedSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	var visibleLoads, savedLoads atomic.Int32
+	var browserChecks atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/browser-check" {
+			browserChecks.Add(1)
+			if r.URL.Query().Get("webdriver") != "false" {
+				t.Error("visible extraction browser advertises WebDriver automation")
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.URL.Path == "/movie.mp4" {
 			cookie, err := r.Cookie("verified")
 			if err != nil || cookie.Value != "yes" {
@@ -277,7 +286,7 @@ func TestExtractSavedSession(t *testing.T) {
 		}
 		visibleLoads.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "verified", Value: "yes", Path: "/", MaxAge: 3600, HttpOnly: true})
-		io.WriteString(w, `<script>setTimeout(()=>fetch('/movie.mp4'),200)</script>`)
+		io.WriteString(w, `<script>fetch('/browser-check?webdriver='+navigator.webdriver).then(()=>fetch('/movie.mp4'))</script>`)
 	}))
 	defer server.Close()
 	for run := 0; run < 2; run++ {
@@ -302,6 +311,9 @@ func TestExtractSavedSession(t *testing.T) {
 	}
 	if visibleLoads.Load() != 1 || savedLoads.Load() != 1 {
 		t.Fatalf("profile was not reused: visible=%d saved=%d", visibleLoads.Load(), savedLoads.Load())
+	}
+	if browserChecks.Load() != 1 {
+		t.Fatal("visible browser configuration was not checked")
 	}
 }
 

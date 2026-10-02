@@ -19,6 +19,7 @@ type Options struct {
 	Timeout                            time.Duration
 	Auto, Raw, Detect, YouTube         bool
 	CookieJar                          http.CookieJar
+	ChooseVariant                      func(context.Context, []int64) (int, error)
 }
 
 // Download validates options and publishes a complete raw file or HLS MP4.

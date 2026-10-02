@@ -109,9 +109,13 @@ func TestExtractBrowser(t *testing.T) {
 		selected.Store(true)
 		go func() { fmt.Fprintln(writer, "invalid"); fmt.Fprintln(writer, "2") }()
 	}}
-	err := extractSession(ctx, browser, Options{URL: server.URL + "/", Out: out, Temp: t.TempDir(), Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{}, input, observed, &stderr)
+	var candidates []Media
+	err := extractSession(ctx, browser, Options{URL: server.URL + "/", Out: out, Temp: t.TempDir(), Concurrency: 2, Timeout: 10 * time.Second}, ExtractOptions{OnMedia: func(media []Media) { candidates = media }}, input, observed, &stderr)
 	if err != nil {
 		t.Fatalf("extract: %v; %s", err, &stderr)
+	}
+	if len(candidates) != 2 || candidates[0].Index != 1 || candidates[0].Kind != "HLS" || candidates[1].Kind != "FILE" || !strings.Contains(candidates[1].URL, "token=a%2Fb") {
+		t.Fatalf("GUI candidates: %+v", candidates)
 	}
 	body, err := os.ReadFile(out)
 	if err != nil || string(body) != "complete media" {

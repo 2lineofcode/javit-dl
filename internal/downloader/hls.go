@@ -135,6 +135,18 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 					idx = i
 				}
 			}
+		} else if d.ChooseVariant != nil {
+			bandwidths := make([]int64, len(variants))
+			for i, v := range variants {
+				bandwidths[i] = v.bandwidth
+			}
+			idx, err = d.ChooseVariant(ctx, bandwidths)
+			if err != nil {
+				return err
+			}
+			if idx < 0 || idx >= len(variants) {
+				return errors.New("invalid variant index")
+			}
 		} else {
 			for i, v := range variants {
 				fmt.Fprintf(d.progress, "[%d] BANDWIDTH=%d\n", i, v.bandwidth)

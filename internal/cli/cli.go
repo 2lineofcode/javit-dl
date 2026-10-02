@@ -115,6 +115,11 @@ Existing files are never overwritten. Press Ctrl+C to cancel.`
 
 // Run parses CLI arguments excluding the program name and executes the command.
 func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer) error {
+	return RunWithGUI(ctx, args, input, output, stderr, nil)
+}
+
+// RunWithGUI adds the desktop launcher without coupling the CLI to Wails.
+func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, stderr io.Writer, launch func(context.Context) error) error {
 	o := downloader.Options{Concurrency: 8}
 	var extraction downloader.ExtractOptions
 	action := func(ctx context.Context, cmd *urfave.Command) error {
@@ -161,6 +166,15 @@ func Run(ctx context.Context, args []string, input io.Reader, output, stderr io.
 			return action(ctx, cmd)
 		},
 		Commands: []*urfave.Command{
+			{Name: "gui", Usage: "Open the desktop interface", Action: func(ctx context.Context, cmd *urfave.Command) error {
+				if cmd.NArg() != 0 {
+					return fmt.Errorf("gui takes no arguments")
+				}
+				if launch == nil {
+					return fmt.Errorf("GUI launcher is unavailable")
+				}
+				return launch(ctx)
+			}},
 			{Name: "extract", Usage: "Open a browser and continuously capture media URLs", ArgsUsage: "<URL>", Description: extractExamples, Action: action, Flags: append(append(commonFlags, hlsFlags...), &urfave.StringFlag{Name: "browser", Local: true, Destination: &extraction.Browser, Usage: "Chrome/Chromium executable path (auto-detected by default)"},
 				&urfave.BoolFlag{Name: "headless", Local: true, Destination: &extraction.Headless, Usage: "Capture media without a browser window, then choose in the terminal"},
 				&urfave.DurationFlag{Name: "capture-duration", Value: 5 * time.Second, Local: true, Destination: &extraction.CaptureDuration, Usage: "Headless capture time after navigation (must be positive)"},

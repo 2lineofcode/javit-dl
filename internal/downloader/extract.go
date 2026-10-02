@@ -29,6 +29,14 @@ type ExtractOptions struct {
 	Browser, PlaySelector string
 	Headless              bool
 	CaptureDuration       time.Duration
+	OnMedia               func([]Media)
+}
+
+// Media is a captured candidate; Index matches the interactive selection number.
+type Media struct {
+	Index int    `json:"index"`
+	URL   string `json:"url"`
+	Kind  string `json:"kind"`
 }
 
 var errExtractionVerification = errors.New("Cloudflare security verification requires an interactive browser")
@@ -200,6 +208,9 @@ func (c *mediaCapture) watch(ctx context.Context) {
 }
 
 func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions, input io.Reader, output, stderr io.Writer) error {
+	if x.OnMedia != nil {
+		x.OnMedia(nil)
+	}
 	capture := newMediaCapture()
 	capture.watch(browserCtx)
 	if err := chromedp.Run(browserCtx, network.Enable(), chromedp.Evaluate(`navigator.userAgent`, &o.UserAgent)); err != nil {
@@ -232,6 +243,13 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 	displayed := 0
 	printItems := func(all bool) {
 		items := capture.snapshot()
+		if x.OnMedia != nil {
+			media := make([]Media, len(items))
+			for i, item := range items {
+				media[i] = Media{Index: i + 1, URL: item.URL, Kind: item.Kind}
+			}
+			x.OnMedia(media)
+		}
 		if all && len(items) == 0 {
 			fmt.Fprintln(output, "No media captured yet; navigate or play a video in the browser.")
 		}

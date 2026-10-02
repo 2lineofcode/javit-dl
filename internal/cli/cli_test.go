@@ -347,3 +347,15 @@ func TestHLSIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestGUILauncher(t *testing.T) {
+	called := false
+	launch := func(context.Context) error { called = true; return nil }
+	if err := RunWithGUI(context.Background(), []string{"gui"}, strings.NewReader(""), io.Discard, io.Discard, launch); err != nil || !called {
+		t.Fatalf("called=%v err=%v", called, err)
+	}
+	called = false
+	if err := RunWithGUI(context.Background(), []string{"gui", "unexpected"}, strings.NewReader(""), io.Discard, io.Discard, launch); err == nil || called {
+		t.Fatalf("called=%v err=%v", called, err)
+	}
+}

@@ -21,10 +21,30 @@ go build -trimpath -o javit_dl .
 
 After changing source, rebuild before using `./javit_dl`. `go run .` always uses the current source.
 
+## Desktop GUI
+
+The optional `gui` command opens a Wails v2 desktop window with a React interface. All existing CLI commands remain available in the same binary. The GUI supports automatic, HLS, direct-file, YouTube and browser-extraction modes, a native save dialog, HLS quality/media selection, bounded activity logs and cancellation. Closing the window cancels the active job. It runs one download at a time; HLS resume data uses the user-cache directory by default.
+
+Build on macOS with Node.js/npm and Xcode Command Line Tools installed:
+
+```sh
+./build.sh
+./javit_dl gui
+# CLI commands work with the same binary:
+./javit_dl --help
+```
+
+`build.sh` installs locked frontend dependencies, builds React, and compiles Go with the Wails `production` build tag. Re-run it after changing frontend or Go source. A plain `go build .` produces a CLI build; the GUI requires the production tag. For source execution after building the frontend, use `go run -tags production . gui`. Node.js is only needed when building, not when running the compiled application. FFmpeg, yt-dlp and Chrome requirements still apply to their respective modes; extraction opens a separate Chrome/Chromium browser.
+
+For frontend development, `npm --prefix frontend run dev` provides Vite; Go bindings and downloads require the desktop window. React uses the Wails Go bridge directly, without a UI component library or state-management dependency. The interface polls state every 250 ms during a job and stops polling while idle. Runtime performance has to be measured on the target machine; using a system WebView does not guarantee a fixed memory footprint.
+
+Windows/Linux require the platform dependencies documented in [Wails installation](https://wails.io/docs/gettingstarted/installation/); native execution is verified on macOS only.
+
 ## Usage
 
 | Command | Input | Behavior |
 | --- | --- | --- |
+| `javit_dl gui` | No arguments | Open the desktop interface (build with `./build.sh`) |
 | `javit_dl <URL>` | YouTube video, HLS or direct file URL | Route YouTube to yt-dlp; otherwise inspect the response for HLS and save other responses unchanged |
 | `javit_dl hls <URL>` | Finished HLS playlist URL | Download resources and remux to MP4 |
 | `javit_dl file <URL>` | Direct HTTP(S) file URL | Save bytes unchanged, including playlist text if supplied |
@@ -185,10 +205,14 @@ CI runs formatting, race/coverage tests, vet, build and vulnerability checks on 
 
 ```text
 main.go                         # Entry point and signal cancellation
+assets.go                       # Embedded frontend build
+build.sh                        # React + desktop Go build
+frontend/                       # React components and Vite build
 internal/
   cli/
     cli.go                      # urfave commands, flags and CLI defaults
     cli_test.go                 # CLI regression and end-to-end media tests
+  gui/                          # Wails window, job state and GUI bindings
   downloader/
     download.go                 # Options, validation and download orchestration
     http.go                     # HTTP client, retries, raw transfers and progress
@@ -202,7 +226,7 @@ internal/
     downloader_test.go          # Downloader, parser and filesystem regression tests
 ```
 
-Dependencies flow from `main` → `internal/cli` → `internal/downloader`. The downloader does not depend on the CLI library. New commands belong in `internal/cli`; download behavior belongs in `internal/downloader`. Tests stay beside the package they exercise. The root entry point keeps `go run .` and `go build .` working.
+Dependencies flow from `main` into `internal/cli` and the optional `internal/gui` launcher; both reuse `internal/downloader`. The downloader does not depend on the CLI library. New commands belong in `internal/cli`; download behavior belongs in `internal/downloader`. Tests stay beside the package they exercise. The root entry point keeps `go run .` and `go build .` working.
 
 ## References
 

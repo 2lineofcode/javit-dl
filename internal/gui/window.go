@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -18,8 +19,9 @@ func Run(ctx context.Context, assets fs.FS) error {
 	}
 	a := newApp(ctx)
 	err := wails.Run(&options.App{
-		Title: "JavIt Downloader", Width: 1000, Height: 800, MinWidth: 720, MinHeight: 640,
+		Title: "JavIt Downloader", Width: 600, Height: 500, DisableResize: true,
 		BackgroundColour: options.NewRGB(17, 20, 27), AssetServer: &assetserver.Options{Assets: assets},
+		Mac:  &mac.Options{Appearance: mac.NSAppearanceNameDarkAqua, TitleBar: mac.TitleBarDefault(), DisableZoom: true},
 		Bind: []interface{}{a},
 		OnStartup: func(wctx context.Context) {
 			a.mu.Lock()

@@ -10,7 +10,7 @@ function Field({ label, help, ...props }) {
 
 function Options({ request, set }) {
   const number = (key) => (event) => set(key, Number(event.target.value));
-  return <details className="advanced"><summary>Download settings <span>Headers, retries & browser</span></summary>
+  return <details className="advanced"><summary>More settings</summary>
     <div className="settings-grid">
       <Field label="Parallel HLS downloads" type="number" min="1" max="64" value={request.concurrency} onChange={number('concurrency')} />
       <Field label="Retries" type="number" min="0" max="10" value={request.retries} onChange={number('retries')} />
@@ -46,9 +46,9 @@ function Activity({ state }) {
   const percent = state.progress?.match(/Resources:\s*(\d+)%/)?.[1];
   return <section className="card activity">
     <div className="section-heading"><h2>Activity</h2><span className={`status ${state.status === 'Failed' ? 'failed' : ''}`} role="status"><i className={state.active ? 'working' : ''} />{state.status}</span></div>
-    <p className="progress-text">{state.progress || (state.active ? 'Working…' : 'Your download progress will appear here.')}</p>
+    <p className="progress-text">{state.progress || (state.active ? 'Working…' : 'Ready to download.')}</p>
     {state.active && <progress aria-label="Download progress" {...(percent ? { value: Number(percent), max: 100 } : {})} />}
-    {!!state.logs?.length && <pre ref={log} className="logs" aria-label="Download activity">{state.logs.join('\n')}</pre>}
+    {!!state.logs?.length && <details className="log-details"><summary>Download log</summary><pre ref={log} className="logs" aria-label="Download activity">{state.logs.join('\n')}</pre></details>}
     {state.error && <p className="error" role="alert">{state.error}</p>}
   </section>;
 }
@@ -87,21 +87,20 @@ export default function App() {
   const start = (event) => { event.preventDefault(); perform(() => call('Start', request)); };
   const savePath = () => perform(async () => { const path = await call('SavePath', request.out); if (path) set('out', path); });
   return <main>
-    <header><div className="app-icon" aria-hidden="true">↓</div><div><h1>JavIt Downloader</h1><p>One link. A local file.</p></div><span className="local-badge">GO + REACT</span></header>
+    <header><div className="app-icon" aria-hidden="true">↓</div><h1>JavIt Downloader</h1></header>
     <form className="card download-form" onSubmit={start}>
       <fieldset disabled={!ready || pending || state.active}>
         <div className="section-heading"><h2>New download</h2><label className="mode"><span className="sr-only">Download mode</span><select value={request.mode} onChange={(e) => set('mode', e.target.value)}>{modes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
         <Field label={request.mode === 'extract' ? 'Website URL' : 'Download URL'} type="url" required placeholder="https://…" value={request.url} onChange={(e) => set('url', e.target.value)} />
-        <p className="hint">{request.mode === 'extract' ? 'Open Chrome, play the video, then select captured media below.' : request.mode === 'auto' ? 'Detects YouTube, HLS playlists, or direct files. Use Extract for website pages.' : request.mode === 'file' ? 'Saves the response unchanged using the exact filename.' : 'Saves as MP4. FFmpeg is required; YouTube also needs yt-dlp.'}</p>
+        <p className="hint">{request.mode === 'extract' ? 'Play the video in Chrome, then select captured media.' : request.mode === 'auto' ? 'YouTube, HLS or direct files. For webpages, use Extract.' : request.mode === 'file' ? 'Saves the response unchanged using the exact filename.' : 'Saves as MP4. FFmpeg is required; YouTube also needs yt-dlp.'}</p>
         <div className="save-row"><Field label="Save to" required value={request.out} onChange={(e) => set('out', e.target.value)} /><button className="secondary" type="button" onClick={savePath}>Browse…</button></div>
-        {!['file','youtube'].includes(request.mode) && <label className="check"><input type="checkbox" checked={request.auto} onChange={(e) => set('auto', e.target.checked)} />Automatically choose highest-bandwidth HLS quality</label>}
+        {!['file','youtube'].includes(request.mode) && <label className="check"><input type="checkbox" checked={request.auto} onChange={(e) => set('auto', e.target.checked)} />Auto-select highest-bandwidth HLS quality</label>}
         <Options request={request} set={set} />
       </fieldset>
-      <div className="form-footer"><span className="muted">Existing files are never overwritten.</span>{state.active ? <button type="button" className="cancel" disabled={pending || state.status === 'Cancelling…'} onClick={() => perform(() => call('Cancel'))}>Cancel download</button> : <button className="primary" disabled={!ready || pending} type="submit">Start download <span aria-hidden="true">↓</span></button>}</div>
+      <div className="form-footer"><span className="muted">Never overwrites existing files.</span>{state.active ? <button type="button" className="cancel" disabled={pending || state.status === 'Cancelling…'} onClick={() => perform(() => call('Cancel'))}>Cancel download</button> : <button className="primary" disabled={!ready || pending} type="submit">Start download <span aria-hidden="true">↓</span></button>}</div>
     </form>
     {error && <p className="error" role="alert">{error}</p>}
     <Choices state={state} pending={pending} select={(id,index) => perform(() => call('Select', id, index))} />
     <Activity state={state} />
-    <footer>Downloads run locally · Browser sessions are saved per site</footer>
   </main>;
 }

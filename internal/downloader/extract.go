@@ -18,12 +18,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/chromedp/cdproto"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/storage"
@@ -38,6 +36,7 @@ type ExtractOptions struct {
 	AutoFilename          bool
 	AllowPopups           bool
 	CaptureDuration       time.Duration
+	debugAddress          string
 	OnMedia               func([]Media)
 	OnOutput              func(string)
 }
@@ -53,6 +52,10 @@ var errExtractionVerification = errors.New("Cloudflare security verification req
 
 // Extract opens a dedicated browser and watches media requests until one is selected.
 func Extract(ctx context.Context, o Options, x ExtractOptions, input io.Reader, output, stderr io.Writer) error {
+	ctx, cancelSession := context.WithCancel(ctx)
+	input = contextualFile(ctx, input)
+	defer cancelInput(ctx, input)()
+	defer cancelSession()
 	if input != nil {
 		input = bufio.NewReader(input)
 	}
@@ -92,8 +95,6 @@ func Extract(ctx context.Context, o Options, x ExtractOptions, input io.Reader, 
 	if err := os.MkdirAll(profile, 0700); err != nil {
 		return fmt.Errorf("create browser session: %w", err)
 	}
-	ctx, cancelSession := context.WithCancel(ctx)
-	defer cancelSession()
 	input = &extractionInput{Reader: input, lines: make(chan string), errors: make(chan error, 1)}
 	run := func(headless bool) error {
 		// Chrome marks even a visible browser as automated when the debugging port is 0.
@@ -131,6 +132,7 @@ func Extract(ctx context.Context, o Options, x ExtractOptions, input io.Reader, 
 		}()
 		session := x
 		session.Headless = headless
+		session.debugAddress = "http://127.0.0.1:" + port
 		return extractSession(ctx, browserCtx, o, session, input, output, stderr)
 	}
 	err = run(x.Headless)
@@ -154,10 +156,11 @@ type mediaCapture struct {
 	changed chan struct{}
 	stopped bool
 	errors  chan error
+	ready   map[target.ID]bool
 }
 
 func newMediaCapture() *mediaCapture {
-	return &mediaCapture{seen: make(map[string]int), changed: make(chan struct{}, 1), errors: make(chan error, 1)}
+	return &mediaCapture{ready: make(map[target.ID]bool), seen: make(map[string]int), changed: make(chan struct{}, 1), errors: make(chan error, 1)}
 }
 
 func (c *mediaCapture) add(item mediaURL) {
@@ -211,112 +214,25 @@ func mediaKind(raw, contentType string, resource network.ResourceType) string {
 	return ""
 }
 
-func (c *mediaCapture) watch(ctx context.Context) {
-	// Request metadata lives only until its response/failure; segment traffic does not accumulate.
-	requests := make(map[string]string)
-	var commandID atomic.Int64
-	// Child sessions are tunneled because chromedp cannot initialize a paused frame.
-	send := func(route []target.SessionID, method string, params any) error {
-		message := func(method string, params any) string {
-			raw, _ := json.Marshal(struct {
-				ID     int64  `json:"id"`
-				Method string `json:"method"`
-				Params any    `json:"params,omitempty"`
-			}{commandID.Add(1), method, params})
-			return string(raw)
-		}
-		raw := message(method, params)
-		for i := len(route) - 1; i > 0; i-- {
-			raw = message("Target.sendMessageToTarget", map[string]any{"sessionId": route[i], "message": raw})
-		}
-		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		return cdp.Execute(cdp.WithExecutor(attempt, chromedp.FromContext(ctx).Target), "Target.sendMessageToTarget", &struct {
-			Message   string           `json:"message"`
-			SessionID target.SessionID `json:"sessionId"`
-		}{raw, route[0]}, nil)
-	}
-	var handle func(any, []target.SessionID)
-	handle = func(event any, route []target.SessionID) {
-		key := func(id network.RequestID) string { return fmt.Sprint(route) + ":" + string(id) }
-
-		switch e := event.(type) {
-		case *network.EventRequestWillBeSent:
-			referer := ""
-			for key, value := range e.Request.Headers {
-				if strings.EqualFold(key, "Referer") {
-					referer, _ = value.(string)
-				}
-			}
-			requests[key(e.RequestID)] = referer
-		case *network.EventResponseReceived:
-			referer := requests[key(e.RequestID)]
-			delete(requests, key(e.RequestID))
-			if e.Response.Status < 200 || e.Response.Status >= 300 {
-				return
-			}
-			if kind := mediaKind(e.Response.URL, e.Response.MimeType, e.Type); kind != "" {
-				c.add(mediaURL{URL: e.Response.URL, Kind: kind, Referer: referer})
-			}
-		case *target.EventReceivedMessageFromTarget:
-			var message cdproto.Message
-			if json.Unmarshal([]byte(e.Message), &message) != nil {
-				return
-			}
-			if message.Error != nil {
-				select {
-				case c.errors <- message.Error:
-				default:
-				}
-			}
-			if message.Method == "" {
-				return
-			}
-			decoded, err := cdproto.UnmarshalMessage(&message)
-			if err == nil {
-				handle(decoded, append(append([]target.SessionID(nil), route...), e.SessionID))
-			}
-		case *target.EventAttachedToTarget:
-			if e.TargetInfo.Type != "iframe" || !e.WaitingForDebugger {
-				return
-			}
-			child := append(append([]target.SessionID(nil), route...), e.SessionID)
-			go func() {
-				err := send(child, "Network.enable", nil)
-				if err == nil {
-					err = send(child, "Target.setAutoAttach", map[string]any{"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": false, "filter": []map[string]any{{"type": "iframe"}, {"exclude": true}}})
-				}
-				resumeErr := send(child, "Runtime.runIfWaitingForDebugger", nil)
-				if err == nil {
-					err = resumeErr
-				}
-				if err != nil && ctx.Err() == nil {
-					select {
-					case c.errors <- err:
-					default:
-					}
-				}
-			}()
-		case *network.EventLoadingFailed:
-			delete(requests, key(e.RequestID))
-		}
-	}
-	chromedp.ListenTarget(ctx, func(event any) { handle(event, nil) })
-}
-
 func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions, input io.Reader, output, stderr io.Writer) error {
 	if x.OnMedia != nil {
 		x.OnMedia(nil)
 	}
 	capture := newMediaCapture()
-	capture.watch(browserCtx)
-	if err := chromedp.Run(browserCtx, network.Enable(), chromedp.Evaluate(`navigator.userAgent`, &o.UserAgent)); err != nil {
+	if err := chromedp.Run(browserCtx, network.Enable(), chromedp.Evaluate(`navigator.userAgent`, &o.UserAgent), target.SetAutoAttach(false, false).WithFlatten(true)); err != nil {
 		return fmt.Errorf("start extraction browser (install Chrome/Chromium or use --browser): %w", err)
 	}
-	// Install capture before new cross-origin frames execute their startup requests.
-	if err := chromedp.Run(browserCtx, target.SetAutoAttach(true, true).WithFlatten(false).WithFilter(target.Filter{{Type: "iframe"}, {Exclude: true}})); err != nil {
-		return fmt.Errorf("watch extraction frames: %w", err)
+	if x.Headless && x.PlaySelector != "" {
+		selector, _ := json.Marshal(x.PlaySelector)
+		if err := chromedp.Run(browserCtx, chromedp.Evaluate("document.querySelector("+string(selector)+")", nil)); err != nil {
+			return fmt.Errorf("invalid play-selector: %w", err)
+		}
 	}
+	stopPages, err := capture.watchPages(browserCtx, x)
+	if err != nil {
+		return fmt.Errorf("watch browser pages: %w", err)
+	}
+	defer stopPages()
 	popups := make(chan *target.Info, 32)
 	mainTarget := chromedp.FromContext(browserCtx).Target.TargetID
 	if !x.AllowPopups {
@@ -330,10 +246,10 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 		})
 	}
 	closePopup := func(info *target.Info) bool {
-		if x.AllowPopups || info.Type != "page" || info.TargetID == mainTarget {
+		if x.AllowPopups || !isExtractionPopup(info, mainTarget) {
 			return false
 		}
-		// ponytail: close after creation; use a browser extension if preventing creation is required.
+		// Close extra tabs without changing the player page's browser APIs.
 		closing, cancel := context.WithTimeout(browserCtx, 2*time.Second)
 		defer cancel()
 		executor := cdp.WithExecutor(closing, chromedp.FromContext(browserCtx).Browser)
@@ -343,7 +259,7 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 		return true
 	}
 	startup, cancel := context.WithTimeout(browserCtx, o.Timeout)
-	err := chromedp.Run(startup, chromedp.Navigate(o.URL))
+	err = chromedp.Run(startup, chromedp.Navigate(o.URL))
 	cancel()
 	if err != nil {
 		return fmt.Errorf("open extraction browser (install Chrome/Chromium or use --browser): %w", err)
@@ -362,7 +278,7 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 	if !x.Headless {
 		startInput()
 	}
-	// ponytail: polling may miss a new tab's first requests; reload it if needed, use auto-attach if that matters.
+	// Auto-attach captures startup requests; polling maintains playback/title contexts.
 	watched := map[string]context.Context{string(chromedp.FromContext(browserCtx).Target.TargetID): browserCtx}
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -391,7 +307,6 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 	var captureDone <-chan time.Time
 	var playbackCtx context.Context
 	var stopPlayback context.CancelFunc
-	playbackErrors := make(chan error, 1)
 	selectionLines := (<-chan string)(lines)
 	if x.Headless {
 		timer := time.NewTimer(x.CaptureDuration)
@@ -400,16 +315,12 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 		selectionLines = nil // Piped selections wait for capture to finish too.
 		playbackCtx, stopPlayback = context.WithTimeout(browserCtx, x.CaptureDuration)
 		defer stopPlayback()
-		if x.PlaySelector != "" {
-			go func() { playbackErrors <- chromedp.Run(playbackCtx, chromedp.Click(x.PlaySelector, chromedp.ByQuery)) }()
-		} else if err := chromedp.Run(playbackCtx, chromedp.Evaluate(autoPlayMedia, nil)); err != nil && ctx.Err() != nil {
-			return ctx.Err()
-		}
+
 	}
 	for {
 		select {
 		case err := <-capture.errors:
-			fmt.Fprintf(stderr, "Cannot watch player frame: %v\n", err)
+			fmt.Fprintf(stderr, "Cannot watch browser media: %v\n", err)
 		case popup := <-popups:
 			closePopup(popup)
 		case <-captureDone:
@@ -444,10 +355,6 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 			fmt.Fprintln(output, "Capture complete. Enter a media number to download, list, or q to quit.")
 			startInput()
 			selectionLines = lines
-		case err := <-playbackErrors:
-			if err != nil && captureDone != nil {
-				fmt.Fprintln(stderr, "Could not click play selector; check --play-selector or use interactive extraction.")
-			}
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-browserCtx.Done():
@@ -461,22 +368,24 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 				if closePopup(info) {
 					continue
 				}
-				if (info.Type != "page" && info.Type != "iframe") || watched[string(info.TargetID)] != nil {
+				if info.Type != "page" || watched[string(info.TargetID)] != nil {
+					continue
+				}
+				capture.mu.Lock()
+				ready := capture.ready[info.TargetID]
+				capture.mu.Unlock()
+				if !ready {
 					continue
 				}
 				tab, closeTab := chromedp.NewContext(browserCtx, chromedp.WithTargetID(info.TargetID))
 				defer closeTab()
 				watched[string(info.TargetID)] = tab
-				// Cross-origin frames are already captured by their parent session.
-				if info.Type == "page" {
-					capture.watch(tab)
-				}
 				attachCtx, cancel := context.WithTimeout(tab, o.Timeout)
 				var stop func() bool
 				if x.Headless {
 					stop = context.AfterFunc(playbackCtx, cancel)
 				}
-				err := chromedp.Run(attachCtx, network.Enable())
+				err := chromedp.Run(attachCtx, target.SetAutoAttach(false, false).WithFlatten(true))
 				if stop != nil {
 					stop()
 				}
@@ -485,18 +394,7 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 					fmt.Fprintf(stderr, "Cannot watch tab: %v\n", err)
 				}
 			}
-			if x.Headless && x.PlaySelector == "" && captureDone != nil {
-				for _, tab := range watched {
-					attempt, cancel := context.WithTimeout(tab, time.Second)
-					stop := context.AfterFunc(playbackCtx, cancel)
-					err := chromedp.Run(attempt, chromedp.Evaluate(autoPlayMedia, nil))
-					stop()
-					cancel()
-					if err != nil && ctx.Err() != nil {
-						return ctx.Err()
-					}
-				}
-			}
+
 		case <-capture.changed:
 			if !x.Headless {
 				printItems(false)
@@ -570,7 +468,7 @@ func extractSession(ctx, browserCtx context.Context, o Options, x ExtractOptions
 				return fmt.Errorf("close extraction browser: %w", err)
 			}
 			// Input has one reader; HLS variant prompts consume subsequent terminal lines.
-			err = Download(ctx, selected, &extractInput{ctx: ctx, lines: lines}, output, stderr)
+			err = Download(ctx, selected, &LineReader{Context: ctx, Lines: lines}, output, stderr)
 			if err == nil {
 				return nil
 			}
@@ -626,19 +524,33 @@ func extractedOutput(out, title string, item mediaURL) (string, error) {
 	}
 }
 
-// ponytail: native media in accessible frames only; custom players use --play-selector or interactive mode.
-const autoPlayMedia = `(() => {
- const play = doc => {
-  for (const media of doc.querySelectorAll('video,audio')) {
-   media.muted = true;
-   media.play().catch(() => {});
-  }
-  for (const frame of doc.querySelectorAll('iframe')) {
-   try { if (frame.contentDocument) play(frame.contentDocument); } catch (_) {}
-  }
- };
- play(document);
-})()`
+// Installed before navigation in every frame, including paused cross-origin frames.
+func extractionScript(x ExtractOptions) string {
+	selector, _ := json.Marshal(x.PlaySelector)
+	return fmt.Sprintf(`(() => {
+  if (globalThis.__javitCaptureInstalled) return;
+  globalThis.__javitCaptureInstalled = true;
+  if (!%t) return;
+  const selector = %s;
+  let clicked = false;
+  const play = () => {
+   if (selector) {
+    const button = document.querySelector(selector);
+    if (button && !clicked) { clicked = true; button.click(); }
+   } else {
+    for (const media of document.querySelectorAll('video,audio')) {
+     media.muted = true;
+     media.play().catch(() => {});
+    }
+   }
+  };
+  play();
+  const timer = setInterval(play, 250);
+  const finish = () => setTimeout(() => clearInterval(timer), %d);
+  if (document.readyState === 'complete') finish();
+  else window.addEventListener('load', finish, {once: true});
+ })()`, x.Headless, selector, x.CaptureDuration.Milliseconds())
+}
 
 // Both browser runs share one stdin reader, so the old run cannot steal input
 // or discard buffered selections during the handoff to a visible browser.
@@ -672,25 +584,26 @@ func (r *extractionInput) start(ctx context.Context) {
 	})
 }
 
-type extractInput struct {
-	ctx     context.Context
-	lines   <-chan string
+// LineReader adapts terminal or GUI selection lines to a cancellable reader.
+type LineReader struct {
+	Context context.Context
+	Lines   <-chan string
 	pending string
 }
 
-func (r *extractInput) Read(p []byte) (int, error) {
+func (r *LineReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 	if r.pending == "" {
 		select {
-		case <-r.ctx.Done():
-			return 0, r.ctx.Err()
-		case line, ok := <-r.lines:
+		case <-r.Context.Done():
+			return 0, r.Context.Err()
+		case line, ok := <-r.Lines:
 			if !ok {
 				return 0, io.EOF
 			}
-			r.pending = line + "\n"
+			r.pending = strings.TrimSuffix(line, "\n") + "\n"
 		}
 	}
 	n := copy(p, r.pending)

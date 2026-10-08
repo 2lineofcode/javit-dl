@@ -32,12 +32,17 @@ function Options({ request, set }) {
 }
 
 function Choices({ state, select, pending }) {
-  if (!state.choices?.length) return null;
+  const [page, setPage] = useState(0);
+  const pages = Math.ceil((state.choices?.length || 0) / 200);
+  const current = Math.min(page, Math.max(0, pages - 1));
+  useEffect(() => { if (!state.choiceKind) setPage(0); }, [state.choiceKind]);
+  if (!pages) return null;
   return <section className="card choices"><h2>{state.choiceKind === 'quality' ? 'Choose HLS quality' : 'Captured media'}</h2>
     <p className="muted">{state.choiceKind === 'quality' ? 'Select a stream to continue downloading.' : 'Select HLS or a direct file. DASH downloads are unsupported.'}</p>
-    <div className="choice-list">{state.choices.map((choice) => <button type="button" className="choice" key={choice.index} disabled={pending || choice.disabled} onClick={() => select(state.choiceID, choice.index)}>
+    <div className="choice-list">{state.choices.slice(current * 200, (current + 1) * 200).map((choice) => <button type="button" className="choice" key={choice.index} disabled={pending || choice.disabled} onClick={() => select(state.choiceID, choice.index)}>
       <span className="choice-badge">{choice.label}</span><span className="choice-url">{choice.url || 'Download this quality'}</span><span aria-hidden="true">→</span>
     </button>)}</div>
+    {pages > 1 && <nav aria-label="Captured media pages"><button type="button" disabled={current === 0 || pending} onClick={() => setPage(current - 1)}>Previous</button><span role="status"> {current + 1} / {pages} </span><button type="button" disabled={current + 1 === pages || pending} onClick={() => setPage(current + 1)}>Next</button></nav>}
   </section>;
 }
 

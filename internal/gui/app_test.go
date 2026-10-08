@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"javit_dl/internal/cli"
+	"javit_dl/internal/downloader"
 )
 
 func waitJob(t *testing.T, a *App) State {
@@ -128,7 +129,7 @@ func TestSelectionAndBoundedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	reader := &jobInput{ctx: ctx, lines: a.input}
+	reader := &downloader.LineReader{Context: ctx, Lines: a.input}
 	p := make([]byte, 10)
 	n, err := reader.Read(p)
 	if err != nil || string(p[:n]) != "2\n" {
@@ -221,5 +222,30 @@ func TestExtractFilenameDefaults(t *testing.T) {
 	r, err = a.Defaults()
 	if err != nil || r.AutoFilename || r.Out != "custom.mp4" {
 		t.Fatalf("explicit output must be preserved: %+v %v", r, err)
+	}
+}
+
+func TestMediaChoicesKeepAllCandidates(t *testing.T) {
+	a := newApp(context.Background())
+	a.state.Active = true
+	a.input = make(chan string, 1)
+	media := make([]downloader.Media, 401)
+	for i := range media {
+		media[i] = downloader.Media{Index: i + 1, URL: fmt.Sprintf("https://example.com/%d.mp4", i), Kind: "FILE"}
+	}
+	a.setMedia(media)
+	state := a.GetState()
+	if len(state.Choices) != 401 || state.Choices[0].Index != 1 || state.Choices[400].Index != 401 {
+		t.Fatalf("candidates dropped: %+v", state.Choices)
+	}
+	if err := a.Select(state.ChoiceID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-a.input; got != "1\n" {
+		t.Fatal(got)
+	}
+	a.setMedia(media)
+	if len(a.GetState().Choices) != 0 {
+		t.Fatal("selected media reappeared")
 	}
 }

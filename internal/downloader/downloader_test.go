@@ -335,3 +335,57 @@ func TestWorkerConcurrencyAndTransientRetry(t *testing.T) {
 		t.Fatalf("503 retry count: %d", requests.Load())
 	}
 }
+
+func TestDetectedPlaylistReuse(t *testing.T) {
+	var requests atomic.Int32
+	body := "\ufeff#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/once/list", http.StatusFound)
+			return
+		}
+		if requests.Add(1) > 1 {
+			w.WriteHeader(http.StatusGone)
+			return
+		}
+		io.WriteString(w, body)
+	}))
+	defer server.Close()
+	o := testOptions()
+	o.URL, o.Detect = server.URL+"/redirect", true
+	d := newDownloader(o, io.Discard)
+	defer d.client.CloseIdleConnections()
+	f, err := os.CreateTemp(t.TempDir(), "raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := d.fetchRaw(context.Background(), f); !errors.Is(err, errHLS) {
+		t.Fatal(err)
+	}
+	d.Detect = false
+	got, base, err := d.fetchPlaylist(context.Background(), o.URL)
+	if err != nil || got != body || base.String() != server.URL+"/once/list" || requests.Load() != 1 {
+		t.Fatalf("playlist refetched or redirect lost: %q %v %v requests=%d", got, base, err, requests.Load())
+	}
+}
+
+func TestCancelReleasesInput(t *testing.T) {
+	input, writer := io.Pipe()
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := cancelInput(ctx, input)
+	defer stop()
+	done := make(chan error, 1)
+	go func() { _, err := input.Read(make([]byte, 1)); done <- err }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, io.ErrClosedPipe) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled input read still blocked")
+	}
+}

@@ -49,7 +49,7 @@ javit_dl gui --help
 | A webpage containing a player | `extract <URL>` | Browser capture, selection, then download |
 | An unknown media URL, not a webpage | `<URL>` with no subcommand | YouTube detection, HLS body detection, otherwise unchanged response |
 
-Automatic detection does not extract media from HTML. Passing a webpage to the default command can save its HTML as the output file. Use `extract` for webpages. Prefer explicit `hls` for known playlists, especially signed or single-use links: automatic HLS detection inspects the response and then fetches the playlist again.
+Automatic detection does not extract media from HTML. Passing a webpage to the default command can save its HTML as the output file. Use `extract` for webpages. Automatic HLS detection reuses the inspected response, including its final URL after redirects; it does not refetch the initial playlist.
 
 Put command flags after the subcommand. These examples assume `/tmp/javit-agent` already exists:
 
@@ -87,7 +87,7 @@ javit_dl extract 'https://example.com/watch' -o /tmp/javit-agent/movie.mp4 --aut
 # Try background capture, then wait for media selection:
 javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s -o /tmp/javit-agent/movie.mp4 --auto
 
-# Click a known custom button in the main document during background capture:
+# Click a known custom button in the page or a player iframe during background capture:
 javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s --play-selector '.play-button' -o /tmp/javit-agent/movie.mp4 --auto
 ```
 
@@ -104,13 +104,15 @@ Send `list\n` to list current candidates. Send `q\n`, `quit\n`, or `exit\n` to c
 
 `--auto` selects HLS quality only. It never selects an extracted media candidate. `--headless` does not make extraction unattended: selection remains interactive, and failed headless capture or download can retry once in a visible browser. Integrations without a usable desktop must account for this fallback rather than assuming the process stays headless.
 
-Without `--play-selector`, headless mode tries muted native video/audio playback. Custom player initialization can require a real Play-button click. The selector is evaluated in the main document; it does not provide a cross-origin iframe selector API. Retry visibly when that player needs manual interaction.
+Without `--play-selector`, headless mode tries muted native video/audio playback. Custom player initialization can require a real Play-button click. The selector is evaluated once per matching document, including cross-origin player frames and permitted tabs. Use a selector specific to the intended Play button. Retry visibly when that player needs manual interaction.
 
 Extraction uses saved profiles per source hostname, separate from ordinary Chrome. On macOS, profiles live under `~/Library/Application Support/JavIt-DL/browser/<hostname-hash>/`. Serialize extraction jobs for the same hostname/profile to avoid Chrome profile conflicts. These profiles contain session data; do not attach them to job reports.
 
-Extra tabs/popups are closed by default, including tabs without an opener. Iframes remain available to players. Use `--allow-popups` only when a requested login/player workflow actually needs another tab; newly opened pages are watched by polling and may need reloading if their first request was missed. This setting is not an ad-content blocker.
+Extra tabs are closed by default, including tabs without an opener. They are resumed before closing so `window.open` does not stall the player; a popup may briefly appear or start a request. Page browser APIs, clicks, and forms remain unchanged so player scripts can initialize normally. Iframes remain available to players. Use `--allow-popups` only when a requested login/player workflow actually needs another tab; allowed pages pause until network capture is installed, including pages without an opener. This setting is not an ad-content blocker.
 
 Human verification and login require user participation when shown. Do not promise an access bypass. A fresh successful browser session still does not guarantee the media server accepts a subsequent download.
+
+DevTools windows remain open for troubleshooting. Player workers are attached for network capture and resumed without page script injection so video processing can continue.
 
 ## 5. Prompts and output handling
 

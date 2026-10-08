@@ -27,6 +27,8 @@ type Options struct {
 
 // Download validates options and publishes a complete raw file or HLS MP4.
 func Download(ctx context.Context, o Options, input io.Reader, output, stderr io.Writer) error {
+	input = contextualFile(ctx, input)
+	defer cancelInput(ctx, input)()
 	u, err := parseHTTPURL(o.URL)
 	if err != nil {
 		return err
@@ -140,4 +142,14 @@ func validateOptions(o Options) error {
 		return errors.New("HTTP headers cannot contain newlines")
 	}
 	return nil
+}
+
+// Release blocking file/pipe reads on cancellation; in-memory and GUI readers
+// already finish immediately or observe the job context.
+func cancelInput(ctx context.Context, input io.Reader) func() {
+	if closer, ok := input.(io.ReadCloser); ok {
+		stop := context.AfterFunc(ctx, func() { _ = closer.Close() })
+		return func() { stop() }
+	}
+	return func() {}
 }

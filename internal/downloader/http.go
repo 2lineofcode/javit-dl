@@ -17,9 +17,11 @@ import (
 
 type downloader struct {
 	Options
-	client   *http.Client
-	progress io.Writer
-	bytes    *byteProgress
+	client       *http.Client
+	progress     io.Writer
+	bytes        *byteProgress
+	playlistBody string
+	playlistURL  *url.URL
 }
 
 func newDownloader(o Options, output io.Writer) *downloader {
@@ -105,7 +107,16 @@ func (d *downloader) request(ctx context.Context, a asset, w io.Writer) (*url.UR
 		}
 		header := strings.TrimPrefix(string(prefix), "\ufeff")
 		if header == "#EXTM3U" || (strings.HasPrefix(header, "#EXTM3U") && strings.ContainsAny(header[7:8], "\r\n \t")) {
-			// ponytail: HLS refetches the playlist after this bounded peek; reuse it if single-use URLs matter.
+			deadline := time.AfterFunc(d.Timeout, func() { _ = resp.Body.Close() })
+			defer deadline.Stop()
+			var body strings.Builder
+			if _, err := io.Copy(&limitedWriter{w: &body, remaining: maxPlaylist}, buffered); err != nil {
+				return nil, err
+			}
+			if resp.ContentLength >= 0 && int64(body.Len()) != resp.ContentLength {
+				return nil, io.ErrUnexpectedEOF
+			}
+			d.playlistBody, d.playlistURL = body.String(), resp.Request.URL
 			return nil, errHLS
 		}
 		reader = buffered // Preserve the bytes inspected above for direct files.
@@ -152,9 +163,6 @@ func (d *downloader) fetchRaw(ctx context.Context, f *os.File) error {
 		counter := startByteProgress(d.progress, 0)
 		_, err := d.request(ctx, asset{uri: d.URL}, io.MultiWriter(f, counter))
 		counter.stop()
-		if errors.Is(err, errHLS) {
-			return err
-		}
 		if err != nil {
 			return err
 		}
@@ -227,6 +235,11 @@ func formatBytes(n float64) string {
 }
 
 func (d *downloader) fetchPlaylist(ctx context.Context, uri string) (string, *url.URL, error) {
+	if d.playlistURL != nil && uri == d.URL {
+		body, base := d.playlistBody, d.playlistURL
+		d.playlistBody, d.playlistURL = "", nil
+		return body, base, ctx.Err()
+	}
 	var body strings.Builder
 	var finalURL *url.URL
 	err := d.retry(ctx, func() error {

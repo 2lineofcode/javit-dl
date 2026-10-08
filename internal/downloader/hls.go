@@ -17,12 +17,15 @@ import (
 )
 
 func readChoice(ctx context.Context, reader *bufio.Reader) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	type result struct {
 		line string
 		err  error
 	}
 	choice := make(chan result, 1)
-	// ponytail: one stdin read can remain blocked after cancellation; CLI exit releases it.
+	// File input polls for cancellation; GUI readers observe the job context.
 	go func() { line, err := reader.ReadString('\n'); choice <- result{line, err} }()
 	select {
 	case <-ctx.Done():
@@ -106,6 +109,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 	}
 	uri := d.URL
 	var body string
+	var lines []string
 	var base *url.URL
 	reader := bufio.NewReader(input)
 	for depth := 0; ; depth++ {
@@ -116,7 +120,7 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 		if err != nil {
 			return fmt.Errorf("fetch playlist: %w", err)
 		}
-		lines, err := playlistLines(body)
+		lines, err = playlistLines(body)
 		if err != nil {
 			return err
 		}
@@ -164,10 +168,6 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 			return errors.New("separate audio renditions are unsupported; select a muxed variant")
 		}
 		uri = variants[idx].uri
-	}
-	lines, err := playlistLines(body)
-	if err != nil {
-		return err
 	}
 	p, err := localPlaylist(lines, base)
 	if err != nil {

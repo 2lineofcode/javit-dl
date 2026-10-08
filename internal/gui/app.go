@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -162,31 +161,14 @@ func (a *App) run(ctx context.Context, cancel context.CancelFunc, r Request, inp
 			return index, nil
 		}
 	}
-	reader := &jobInput{ctx: ctx, lines: input}
+	reader := &downloader.LineReader{Context: ctx, Lines: input}
 	var err error
 	if r.Mode == "extract" {
 		x := downloader.ExtractOptions{Browser: r.Browser, Headless: r.Headless, AllowPopups: r.AllowPopups, AutoFilename: r.AutoFilename, OnOutput: func(out string) {
 			a.mu.Lock()
 			a.state.Out = out
 			a.mu.Unlock()
-		}, CaptureDuration: time.Duration(r.CaptureDuration) * time.Second, PlaySelector: r.PlaySelector, OnMedia: func(media []downloader.Media) {
-			// ponytail: display the latest 200 candidates; add paging if large captures matter.
-			start := max(0, len(media)-200)
-			choices := make([]Choice, 0, len(media)-start)
-			for _, m := range media[start:] {
-				choices = append(choices, Choice{Index: m.Index, Label: m.Kind, URL: m.URL, Disabled: strings.HasPrefix(m.Kind, "DASH")})
-			}
-			a.mu.Lock()
-			if media == nil {
-				a.mediaSelected = false
-			}
-			if !a.mediaSelected && a.state.Status != "Cancelling…" {
-				a.state.Choices = choices
-				a.state.ChoiceKind = "media"
-				a.state.ChoiceID++
-			}
-			a.mu.Unlock()
-		}}
+		}, CaptureDuration: time.Duration(r.CaptureDuration) * time.Second, PlaySelector: r.PlaySelector, OnMedia: a.setMedia}
 		err = downloader.Extract(ctx, o, x, reader, a, a)
 	} else {
 		err = downloader.Download(ctx, o, reader, a, a)
@@ -204,6 +186,23 @@ func (a *App) run(ctx context.Context, cancel context.CancelFunc, r Request, inp
 		a.state.Status = "Failed"
 		a.state.Error = err.Error()
 	}
+}
+
+func (a *App) setMedia(media []downloader.Media) {
+	choices := make([]Choice, 0, len(media))
+	for _, m := range media {
+		choices = append(choices, Choice{Index: m.Index, Label: m.Kind, URL: m.URL, Disabled: strings.HasPrefix(m.Kind, "DASH")})
+	}
+	a.mu.Lock()
+	if media == nil {
+		a.mediaSelected = false
+	}
+	if !a.mediaSelected && a.state.Status != "Cancelling…" {
+		a.state.Choices = choices
+		a.state.ChoiceKind = "media"
+		a.state.ChoiceID++
+	}
+	a.mu.Unlock()
 }
 
 func (a *App) setChoices(kind string, choices []Choice) {
@@ -288,30 +287,4 @@ func (a *App) Write(p []byte) (int, error) {
 		a.state.Logs = append([]string{}, a.state.Logs[len(a.state.Logs)-120:]...)
 	}
 	return len(p), nil
-}
-
-type jobInput struct {
-	ctx     context.Context
-	lines   <-chan string
-	pending string
-}
-
-func (r *jobInput) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	if r.pending == "" {
-		select {
-		case <-r.ctx.Done():
-			return 0, r.ctx.Err()
-		case line, ok := <-r.lines:
-			if !ok {
-				return 0, io.EOF
-			}
-			r.pending = line
-		}
-	}
-	n := copy(p, r.pending)
-	r.pending = r.pending[n:]
-	return n, nil
 }

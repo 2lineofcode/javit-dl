@@ -56,7 +56,7 @@ func TestMediaCapture(t *testing.T) {
 	if len(c.snapshot()) != 2 {
 		t.Fatal("capture changed after deadline")
 	}
-	r := &extractInput{ctx: context.Background(), lines: func() <-chan string { ch := make(chan string, 2); ch <- "0"; ch <- "1"; close(ch); return ch }()}
+	r := &LineReader{Context: context.Background(), Lines: func() <-chan string { ch := make(chan string, 2); ch <- "0"; ch <- "1"; close(ch); return ch }()}
 	got, err := io.ReadAll(r)
 	if err != nil || string(got) != "0\n1\n" {
 		t.Fatalf("variant input: %q, %v", got, err)
@@ -164,6 +164,7 @@ func TestExtractHeadless(t *testing.T) {
 		wantMedia            bool
 	}{
 		{"native-play", `<video></video><script>document.querySelector('video').play=()=>{fetch('/movie.mp4?token=a%2Fb');return Promise.resolve()}</script>`, "", true},
+		{"slow-native-play", `<video></video><img src="/slow"><script>addEventListener('load',()=>{document.querySelector('video').play=()=>{fetch('/movie.mp4?token=a%2Fb');return Promise.resolve()}})</script>`, "", true},
 		{"delayed-button", `<script>setTimeout(()=>{const b=document.createElement('button');b.id='play';b.onclick=()=>fetch('/movie.mp4?token=a%2Fb');document.body.append(b)},200)</script>`, "#play", true},
 		{"empty-page", `<html><body>No video</body></html>`, "", false},
 		{"missing-button", `<html><body>No button</body></html>`, "#missing", false},
@@ -184,6 +185,11 @@ func TestExtractHeadless(t *testing.T) {
 						w.WriteHeader(http.StatusForbidden)
 					}
 					io.WriteString(w, "<!doctype html><html><body>"+tc.html+"</body></html>")
+					return
+				}
+				if r.URL.Path == "/slow" {
+					time.Sleep(1200 * time.Millisecond)
+					w.WriteHeader(http.StatusNoContent)
 					return
 				}
 				if r.URL.Path != "/movie.mp4" {
@@ -449,6 +455,23 @@ func TestExtractedOutput(t *testing.T) {
 	}
 }
 
+func TestExtractionPopup(t *testing.T) {
+	for _, tc := range []struct {
+		info target.Info
+		want bool
+	}{
+		{target.Info{Type: "page", TargetID: "main", URL: "https://example.com"}, false},
+		{target.Info{Type: "page", TargetID: "extra", URL: "https://example.com"}, true},
+		{target.Info{Type: "iframe", TargetID: "extra", URL: "https://example.com"}, false},
+		{target.Info{Type: "page", TargetID: "tools", URL: "devtools://devtools/bundled/inspector.html"}, false},
+		{target.Info{Type: "page", TargetID: "tools", URL: "chrome-devtools://devtools/bundled/inspector.html"}, false},
+	} {
+		if got := isExtractionPopup(&tc.info, "main"); got != tc.want {
+			t.Errorf("%+v: popup=%v, want %v", tc.info, got, tc.want)
+		}
+	}
+}
+
 func TestExtractPopups(t *testing.T) {
 	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
 		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
@@ -464,6 +487,8 @@ func TestExtractPopups(t *testing.T) {
 			var checked atomic.Int32
 			var newTab atomic.Value
 			newTab.Store("")
+			var devTools atomic.Value
+			devTools.Store("")
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/":
@@ -475,8 +500,14 @@ func TestExtractPopups(t *testing.T) {
 						t.Errorf("create tab without opener: %v", err)
 					}
 					newTab.Store(string(id))
+					tools, err := target.CreateTarget("devtools://devtools/bundled/inspector.html").Do(cdp.WithExecutor(ctx, chromedp.FromContext(browser).Browser))
+					if err != nil {
+						t.Errorf("create DevTools: %v", err)
+					}
+					devTools.Store(string(tools))
 					w.Header().Set("Content-Type", "text/html")
-					io.WriteString(w, `<script>setTimeout(()=>fetch('/movie.mp4'),500)</script>`)
+					// Player initialization must be able to wrap window.open in strict mode.
+					io.WriteString(w, `<script>'use strict';const open=window.open;window.open=function(...args){return open.apply(this,args)};setTimeout(()=>fetch('/movie.mp4'),500)</script>`)
 				case "/popup", "/tab":
 					w.Header().Set("Content-Type", "text/html")
 					io.WriteString(w, "Advertisement")
@@ -487,7 +518,11 @@ func TestExtractPopups(t *testing.T) {
 						t.Errorf("inspect new tab: %v", err)
 					}
 					open := false
+					toolsOpen := false
 					for _, info := range targets {
+						if string(info.TargetID) == devTools.Load().(string) {
+							toolsOpen = true
+						}
 						if string(info.TargetID) == newTab.Load().(string) {
 							open = true
 							if info.OpenerID != "" {
@@ -497,6 +532,9 @@ func TestExtractPopups(t *testing.T) {
 					}
 					if newTab.Load().(string) == "" || open != allow {
 						t.Errorf("new tab open=%v, allow=%v", open, allow)
+					}
+					if devTools.Load().(string) == "" || !toolsOpen {
+						t.Error("DevTools was closed as a popup")
 					}
 					if r.URL.Query().Get("open") != fmt.Sprint(allow) {
 						t.Errorf("popup open=%s, allow=%v", r.URL.Query().Get("open"), allow)
@@ -582,6 +620,64 @@ func TestExtractEarlyCrossOriginHLS(t *testing.T) {
 				if item.Kind != "HLS" {
 					t.Fatalf("wrong media kind: %+v", item)
 				}
+			}
+		})
+	}
+}
+
+func TestExtractStartupPagesAndFramePlayback(t *testing.T) {
+	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
+		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	}
+	for _, mode := range []string{"new-tab", "cross-origin-native", "cross-origin-selector"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.Flag("site-per-process", true))
+			alloc, stop := chromedp.NewExecAllocator(ctx, opts...)
+			defer stop()
+			browser, closeBrowser := chromedp.NewContext(alloc)
+			defer closeBrowser()
+			player := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/first.mp4" {
+					w.Header().Set("Content-Type", "video/mp4")
+					io.WriteString(w, "media")
+					return
+				}
+				w.Header().Set("Content-Type", "text/html")
+				switch mode {
+				case "new-tab":
+					io.WriteString(w, `<script>fetch('/first.mp4')</script>`)
+				case "cross-origin-native":
+					io.WriteString(w, `<video></video><script>document.querySelector('video').play=()=>{fetch('/first.mp4');return Promise.resolve()}</script>`)
+				case "cross-origin-selector":
+					io.WriteString(w, `<button id="play" onclick="fetch('/first.mp4')">Play</button>`)
+				}
+			}))
+			defer player.Close()
+			playerURL := strings.Replace(player.URL, "127.0.0.1", "localhost", 1)
+			site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/html")
+				if mode == "new-tab" {
+					if _, err := target.CreateTarget(playerURL).Do(cdp.WithExecutor(ctx, chromedp.FromContext(browser).Browser)); err != nil {
+						t.Error(err)
+					}
+					io.WriteString(w, "New tab")
+				} else {
+					fmt.Fprintf(w, `<iframe src="%s"></iframe>`, playerURL)
+				}
+			}))
+			defer site.Close()
+			x := ExtractOptions{Headless: true, CaptureDuration: 2 * time.Second, AllowPopups: true}
+			if mode == "cross-origin-selector" {
+				x.PlaySelector = "#play"
+			}
+			var captured []Media
+			x.OnMedia = func(media []Media) { captured = media }
+			var output, stderr bytes.Buffer
+			err := extractSession(ctx, browser, Options{URL: site.URL, Out: filepath.Join(t.TempDir(), "out.mp4"), Concurrency: 2, Timeout: 10 * time.Second}, x, strings.NewReader("q\n"), &output, &stderr)
+			if err != nil || len(captured) != 1 || captured[0].URL != playerURL+"/first.mp4" {
+				t.Fatalf("startup/playback media lost: %v %+v\n%s\n%s", err, captured, &output, &stderr)
 			}
 		})
 	}

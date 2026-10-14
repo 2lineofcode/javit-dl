@@ -50,10 +50,13 @@ func TestCLIHelp(t *testing.T) {
 		if err := Run(context.Background(), args, nil, &output, &stderr); err != nil {
 			t.Fatalf("help %q: %v", args, err)
 		}
-		for _, want := range []string{"javit_dl", "Examples:", "https://", "-o"} {
+		for _, want := range []string{"kuraku", "Examples:", "https://", "-o"} {
 			if !strings.Contains(output.String(), want) {
 				t.Errorf("help %q missing %s: %s", args, want, output.String())
 			}
+		}
+		if strings.Contains(strings.ToLower(output.String()), "javit") {
+			t.Errorf("help %q contains the old name: %s", args, output.String())
 		}
 		if strings.Contains(output.String(), "--rawurl") || strings.Contains(output.String(), "--url") {
 			t.Errorf("help %q contains removed flags: %s", args, output.String())

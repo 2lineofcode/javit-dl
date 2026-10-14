@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"javit_dl/internal/cli"
-	"javit_dl/internal/gui"
+	"kuraku-downloader/internal/cli"
+	"kuraku-downloader/internal/gui"
 )
 
 func main() {

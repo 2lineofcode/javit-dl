@@ -15,8 +15,8 @@ import (
 )
 
 func TestMediaPagination(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome GUI checks")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome GUI checks")
 	}
 	if _, err := os.Stat("../../frontend/dist/index.html"); err != nil {
 		t.Skip("build the frontend before running GUI checks")
@@ -40,6 +40,7 @@ func TestMediaPagination(t *testing.T) {
 	defer closeBrowser()
 	var count int
 	var selected []int
+	var title, heading string
 	err = chromedp.Run(browser,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			_, err := page.AddScriptToEvaluateOnNewDocument(script).Do(ctx)
@@ -47,6 +48,8 @@ func TestMediaPagination(t *testing.T) {
 		}),
 		chromedp.Navigate(server.URL),
 		chromedp.WaitVisible("nav", chromedp.ByQuery),
+		chromedp.Title(&title),
+		chromedp.Text("h1", &heading, chromedp.ByQuery),
 		chromedp.Evaluate(`document.querySelectorAll('.choice').length`, &count),
 		chromedp.Click("nav button:last-child", chromedp.ByQuery),
 		chromedp.Poll(`document.querySelector('.choice-url').textContent.endsWith('/201.mp4')`, nil),
@@ -62,5 +65,8 @@ func TestMediaPagination(t *testing.T) {
 	)
 	if err != nil || count != 200 || len(selected) != 2 || selected[0] != 7 || selected[1] != 1 {
 		t.Fatalf("pagination/selection: %v count=%d selected=%v", err, count, selected)
+	}
+	if title != "kuraku-downloader" || heading != "kuraku-downloader" {
+		t.Fatalf("application name: title=%q heading=%q", title, heading)
 	}
 }

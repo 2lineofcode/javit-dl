@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"javit_dl/internal/downloader"
+	"kuraku-downloader/internal/downloader"
 
 	urfave "github.com/urfave/cli/v3"
 )
@@ -17,16 +17,16 @@ from the response body. Other responses are saved unchanged. Replace the example
 
 Examples:
   Download a playlist or file automatically:
-    ./javit_dl 'https://example.com/video' -o movie.mp4 --auto
+    ./kuraku 'https://example.com/video' -o movie.mp4 --auto
 
   Save to a custom path (the folder must already exist):
-    ./javit_dl 'https://example.com/video' -o '/home/xxx/movie.mp4' --auto
+    ./kuraku 'https://example.com/video' -o '/home/xxx/movie.mp4' --auto
 
   Download a direct file:
-    ./javit_dl 'https://example.com/archive.zip' -o archive.zip
+    ./kuraku 'https://example.com/archive.zip' -o archive.zip
 
   Download a YouTube video automatically:
-    ./javit_dl 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
+    ./kuraku 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
 
 To discover media interactively, use extract <website-URL>.
 To choose a type manually, use hls <URL>, file <URL> or youtube <URL>.
@@ -37,19 +37,19 @@ Replace the example URLs with your own links.
 
 Examples:
   Automatically choose the highest-bandwidth variant:
-    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto
+    ./kuraku hls 'https://example.com/master.m3u8' -o movie.mp4 --auto
 
   Choose a variant interactively:
-    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4
+    ./kuraku hls 'https://example.com/master.m3u8' -o movie.mp4
 
   Save to a custom path (the folder must already exist):
-    ./javit_dl hls 'https://example.com/master.m3u8' -o '/home/xxx/movie.mp4' --auto
+    ./kuraku hls 'https://example.com/master.m3u8' -o '/home/xxx/movie.mp4' --auto
 
   Resume a failed HLS download by repeating the same URL and options:
-    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto -c 8 -r 3 --temp m3u8_tmp
+    ./kuraku hls 'https://example.com/master.m3u8' -o movie.mp4 --auto -c 8 -r 3 --temp m3u8_tmp
 
   Send headers required by the source website:
-    ./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
+    ./kuraku hls 'https://example.com/master.m3u8' -o movie.mp4 --auto --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
 
 Existing files require confirmation before replacement. Press Ctrl+C to cancel.
 Completed HLS resources are kept for resume.`
@@ -59,13 +59,13 @@ Replace the example URLs with your own links.
 
 Examples:
   Download a video file:
-    ./javit_dl file 'https://example.com/video.mp4' -o video.mp4
+    ./kuraku file 'https://example.com/video.mp4' -o video.mp4
 
   Save any file to a custom path (the folder must already exist):
-    ./javit_dl file 'https://example.com/archive.zip' -o '/home/xxx/archive.zip'
+    ./kuraku file 'https://example.com/archive.zip' -o '/home/xxx/archive.zip'
 
   Send headers required by the source website:
-    ./javit_dl file 'https://example.com/video.mp4' -o video.mp4 --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
+    ./kuraku file 'https://example.com/video.mp4' -o video.mp4 --user-agent 'Mozilla/5.0' --referer 'https://example.com/'
 
 Existing files require confirmation before replacement. Press Ctrl+C to cancel.
 Incomplete files are removed; file downloads restart from the beginning.`
@@ -76,10 +76,10 @@ is recommended by yt-dlp (macOS: brew install yt-dlp ffmpeg deno).
 
 Examples:
   Download a YouTube video (also detected automatically without this command):
-    ./javit_dl youtube 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
+    ./kuraku youtube 'https://www.youtube.com/watch?v=jNQXAC9IVRw' -o youtube.mp4
 
   Use a short link and custom output path:
-    ./javit_dl youtube 'https://youtu.be/jNQXAC9IVRw' -o '/home/xxx/youtube.mp4'
+    ./kuraku youtube 'https://youtu.be/jNQXAC9IVRw' -o '/home/xxx/youtube.mp4'
 
 Watch, Shorts, live video links and embedded video URLs are supported.
 H.264/AAC must be available; other codecs are not selected.
@@ -94,16 +94,16 @@ download starts; q also closes the browser.
 
 Examples:
   Open a website and choose a captured playlist:
-    ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --auto
+    ./kuraku extract 'https://example.com/watch' -o movie.mp4 --auto
 
   Capture in the background for 20 seconds, then choose a URL:
-    ./javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s -o movie.mp4 --auto
+    ./kuraku extract 'https://example.com/watch' --headless --capture-duration 20s -o movie.mp4 --auto
 
   Click a custom player button during headless capture:
-    ./javit_dl extract 'https://example.com/watch' --headless --play-selector '.play-button' -o movie.mp4 --auto
+    ./kuraku extract 'https://example.com/watch' --headless --play-selector '.play-button' -o movie.mp4 --auto
 
   Use a specific browser executable:
-    ./javit_dl extract 'https://example.com/watch' -o movie.mp4 --browser '/path/to/chrome'
+    ./kuraku extract 'https://example.com/watch' -o movie.mp4 --browser '/path/to/chrome'
 
 Chrome/Chromium must be installed; HLS requires FFmpeg.
 Session cookies and the browser User-Agent are reused for HTTP downloads.
@@ -125,7 +125,7 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 	var extraction downloader.ExtractOptions
 	action := func(ctx context.Context, cmd *urfave.Command) error {
 		if cmd.NArg() != 1 {
-			return fmt.Errorf("provide exactly one HTTP(S) URL; see javit_dl --help")
+			return fmt.Errorf("provide exactly one HTTP(S) URL; see kuraku --help")
 		}
 		o.URL = cmd.Args().First()
 		o.PromptOverwrite = true
@@ -138,14 +138,14 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		}
 		o.Raw = cmd.Name == "file"
 		o.YouTube = cmd.Name == "youtube"
-		o.Detect = cmd.Name == "javit_dl"
+		o.Detect = cmd.Name == "kuraku"
 		return downloader.Download(ctx, o, input, output, stderr)
 	}
 	commonFlags := []urfave.Flag{
 		&urfave.StringFlag{Name: "out", Aliases: []string{"o"}, Value: "output.mp4", Local: true, Destination: &o.Out, Usage: "Output file path; parent folder must exist"},
 		&urfave.IntFlag{Name: "retries", Aliases: []string{"r"}, Value: 3, Local: true, Destination: &o.Retries, Usage: "Retries after the first attempt (0-10)"},
 		&urfave.DurationFlag{Name: "timeout", Value: 30 * time.Second, Local: true, Destination: &o.Timeout, Usage: "HLS request / YouTube socket timeout (file: response headers only)"},
-		&urfave.StringFlag{Name: "user-agent", Value: "JavIt-DL/2.0", Local: true, Destination: &o.UserAgent, Usage: "HTTP User-Agent"},
+		&urfave.StringFlag{Name: "user-agent", Value: "kuraku-downloader/2.0", Local: true, Destination: &o.UserAgent, Usage: "HTTP User-Agent"},
 		&urfave.StringFlag{Name: "referer", Local: true, Destination: &o.Referer, Usage: "Optional HTTP Referer"},
 	}
 	hlsFlags := []urfave.Flag{
@@ -186,7 +186,7 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		}
 	}
 	cmd := &urfave.Command{
-		Name:        "javit_dl",
+		Name:        "kuraku",
 		Usage:       "Download a URL, automatically detecting YouTube, HLS or files",
 		ArgsUsage:   "<URL>",
 		Flags:       append(commonFlags, hlsFlags...),
@@ -202,7 +202,7 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 		},
 		Commands: []*urfave.Command{
 			{Name: "gui", Usage: "Open the desktop interface with optional form values", ArgsUsage: " ",
-				Description: "Options prefill the form; use --startdownload to begin automatically.\n\nExamples:\n  ./javit_dl gui -u https://example.com/video -o movie.mp4 --auto\n  ./javit_dl gui -u https://example.com/watch --mode extract --headless\n  ./javit_dl gui --help",
+				Description: "Options prefill the form; use --startdownload to begin automatically.\n\nExamples:\n  ./kuraku gui -u https://example.com/video -o movie.mp4 --auto\n  ./kuraku gui -u https://example.com/watch --mode extract --headless\n  ./kuraku gui --help",
 				Flags: append(guiFlags,
 					&urfave.StringFlag{Name: "url", Aliases: []string{"u"}, Local: true, Usage: "URL to prefill in the desktop form"},
 					&urfave.StringFlag{Name: "mode", Value: "auto", Local: true, Usage: "Download mode: auto, hls, file, youtube, extract"},
@@ -229,7 +229,7 @@ func RunWithGUI(ctx context.Context, args []string, input io.Reader, output, std
 			{Name: "file", Usage: "Download a direct file unchanged", ArgsUsage: "<URL>", Description: fileExamples, Flags: commonFlags, Action: action},
 		},
 	}
-	return cmd.Run(ctx, append([]string{"javit_dl"}, args...))
+	return cmd.Run(ctx, append([]string{"kuraku"}, args...))
 }
 
 // guiValues forwards only explicit flags, preserving the desktop defaults.

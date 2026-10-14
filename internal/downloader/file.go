@@ -8,7 +8,7 @@ import (
 
 // Stage on the destination filesystem; replace only after explicit confirmation.
 func publish(out string, overwrite bool, write func(*os.File) error) error {
-	f, err := os.CreateTemp(filepath.Dir(out), ".javit-dl-*")
+	f, err := os.CreateTemp(filepath.Dir(out), ".kuraku-*")
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"javit_dl/internal/downloader"
+	"kuraku-downloader/internal/appdata"
+	"kuraku-downloader/internal/downloader"
 )
 
 // Request contains editable GUI settings. Downloader validation remains authoritative.
@@ -82,11 +83,15 @@ func (a *App) Defaults() (Request, error) {
 	if err != nil {
 		return Request{}, err
 	}
+	cache, err = appdata.Dir(cache)
+	if err != nil {
+		return Request{}, err
+	}
 	dir := filepath.Join(home, "Downloads")
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		dir = home
 	}
-	r := Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "JavIt-DL", "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true, AutoFilename: true}
+	r := Request{Out: filepath.Join(dir, "output.mp4"), Mode: "auto", Temp: filepath.Join(cache, "downloads"), Concurrency: 8, Retries: 3, Timeout: 30, CaptureDuration: 5, Auto: true, AutoFilename: true}
 	patch, err := json.Marshal(a.initial)
 	if err != nil {
 		return Request{}, err
@@ -146,7 +151,7 @@ func (a *App) run(ctx context.Context, cancel context.CancelFunc, r Request, inp
 	defer cancel()
 	o := downloader.Options{URL: strings.TrimSpace(r.URL), Out: r.Out, Temp: r.Temp, UserAgent: r.UserAgent, Referer: r.Referer, Concurrency: r.Concurrency, Retries: r.Retries, Timeout: time.Duration(r.Timeout) * time.Second, Auto: r.Auto, Raw: r.Mode == "file", Detect: r.Mode == "auto", YouTube: r.Mode == "youtube"}
 	if o.UserAgent == "" && r.Mode != "extract" {
-		o.UserAgent = "JavIt-DL/2.0"
+		o.UserAgent = "kuraku-downloader/2.0"
 	}
 	o.ChooseVariant = func(ctx context.Context, bandwidths []int64) (int, error) {
 		choices := make([]Choice, len(bandwidths))

@@ -52,7 +52,7 @@ func downloadYouTube(ctx context.Context, o Options, input io.Reader, output, st
 	if err != nil {
 		return errors.New("YouTube downloads require ffmpeg in PATH (macOS: brew install ffmpeg)")
 	}
-	dir, err := os.MkdirTemp(filepath.Dir(o.Out), ".javit-youtube-*")
+	dir, err := os.MkdirTemp(filepath.Dir(o.Out), ".kuraku-youtube-*")
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func downloadYouTube(ctx context.Context, o Options, input io.Reader, output, st
 		"--retries", strconv.Itoa(o.Retries), "--fragment-retries", strconv.Itoa(o.Retries), "--extractor-retries", strconv.Itoa(o.Retries),
 		"--socket-timeout", strconv.FormatFloat(o.Timeout.Seconds(), 'f', -1, 64),
 	}
-	if o.UserAgent != "" && o.UserAgent != "JavIt-DL/2.0" {
+	if o.UserAgent != "" && o.UserAgent != "kuraku-downloader/2.0" {
 		args = append(args, "--add-headers", "User-Agent:"+o.UserAgent)
 	}
 	if o.Referer != "" {

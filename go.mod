@@ -1,4 +1,4 @@
-module javit_dl
+module kuraku-downloader
 
 go 1.27.1
 

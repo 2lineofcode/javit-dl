@@ -18,8 +18,8 @@ import (
 )
 
 func TestExtractWorkerPlayback(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome playback")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome playback")
 	}
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg unavailable")

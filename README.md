@@ -1,4 +1,6 @@
-# JavIt Downloader
+# kuraku-downloader
+
+The application is **kuraku-downloader**; its terminal command is **`kuraku`**.
 
 Download YouTube videos, HLS (`.m3u8`) streams, and direct files through a desktop app or the terminal. For videos embedded in websites, use browser extraction to find and select the media to download.
 
@@ -27,7 +29,7 @@ From the project folder, build and launch the desktop app:
 
 ```sh
 ./build.sh
-./javit_dl gui
+./kuraku gui
 ```
 
 Re-run `./build.sh` after changing the source. Node.js is only needed to build the app.
@@ -36,12 +38,16 @@ To build and install into `GOBIN` (or the first `GOPATH` entry's `bin` folder):
 
 ```sh
 ./install.sh
-javit_dl gui
+kuraku gui
 ```
 
 Keep that folder in your `PATH`. Plain `go install` rebuilds without the desktop build tag.
 
-For a terminal-only build, use `go build -trimpath -o javit_dl .` instead.
+Upgrading from JavIt-DL: run `./install.sh`, then update scripts or aliases that invoke `javit_dl` to use `kuraku`. Existing browser sessions and GUI download caches keep using their legacy `JavIt-DL` folders when present; fresh installations use `kuraku-downloader` under the system config/cache folders. If both folders exist, `kuraku-downloader` takes precedence. Existing files and old binaries are not removed.
+
+The default HTTP User-Agent is now `kuraku-downloader/2.0`. To resume an old HLS job that used the previous default, add `--user-agent 'JavIt-DL/2.0'` and keep its original URL, cache folder, and other settings (or enter that User-Agent in the GUI). Browser extraction still uses Chrome's User-Agent.
+
+For a terminal-only build, use `go build -trimpath -o kuraku .` instead.
 
 ## Setup (Linux)
 
@@ -51,7 +57,7 @@ Building requires **Go 1.27.1+** and **Node.js 20.19+ or 22.12+** (Node.js 24 is
 sudo apt update
 sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev ffmpeg
 ./build.sh
-./javit_dl gui
+./kuraku gui
 ```
 
 `build.sh` detects WebKitGTK 4.1 and adds Wails' `webkit2_41` build tag automatically; WebKitGTK 4.0 is also supported when 4.1 is unavailable. `./install.sh` uses the same build. Other distributions need the equivalent GTK3/WebKitGTK packages; see the [Wails installation guide](https://wails.io/docs/gettingstarted/installation/).
@@ -59,8 +65,8 @@ sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev f
 Install Chrome/Chromium for browser extraction, and yt-dlp plus a supported JavaScript runtime such as Deno for YouTube downloads. Keep these executables in `PATH`, or pass `--browser` for Chrome/Chromium. The desktop app and visible extraction browser require a graphical session. A terminal-only build does not require GTK/WebKitGTK:
 
 ```sh
-go build -trimpath -o javit_dl .
-./javit_dl --help
+go build -trimpath -o kuraku .
+./kuraku --help
 ```
 
 ## Desktop usage
@@ -74,9 +80,9 @@ HLS quality is selected automatically by default; uncheck the option to choose m
 Prefill the desktop form from the terminal:
 
 ```sh
-./javit_dl gui -u 'http://domain.zxc' -o movie.mp4 --auto
-./javit_dl gui -u 'https://example.com/video.mp4' -o movie.mp4 --startdownload
-./javit_dl gui -u 'https://example.com/watch' --mode extract --headless --capture-duration 20s
+./kuraku gui -u 'http://domain.zxc' -o movie.mp4 --auto
+./kuraku gui -u 'https://example.com/video.mp4' -o movie.mp4 --startdownload
+./kuraku gui -u 'https://example.com/watch' --mode extract --headless --capture-duration 20s
 ```
 
 GUI parameters fill the form. Add `--startdownload` to submit the form once when it is ready, using the same validation and action as **Start download**; this flag requires `-u`/`--url`. Without it, start manually. Omitted options retain desktop defaults, including the Downloads output path and HLS cache folder. Use `--mode auto|hls|file|youtube|extract` to choose a mode; extraction options select `extract` when `--mode` is omitted. Use `--auto=false` for manual HLS quality. GUI timeout/capture durations must be whole seconds (for example `30s` or `1m`).
@@ -85,34 +91,34 @@ GUI parameters fill the form. Add `--startdownload` to submit the form once when
 
 | Command | Purpose |
 | --- | --- |
-| `./javit_dl gui` | Open the desktop app; build with `./build.sh` first |
-| `./javit_dl <URL>` | Automatically detect YouTube, HLS, or a direct file |
-| `./javit_dl youtube <URL>` | Download one YouTube video as MP4 |
-| `./javit_dl hls <URL>` | Download a finished HLS stream as MP4 |
-| `./javit_dl file <URL>` | Save a direct file unchanged |
-| `./javit_dl extract <URL>` | Open a webpage in Chrome and choose captured media |
-| `./javit_dl --help` | Show available commands and options |
+| `./kuraku gui` | Open the desktop app; build with `./build.sh` first |
+| `./kuraku <URL>` | Automatically detect YouTube, HLS, or a direct file |
+| `./kuraku youtube <URL>` | Download one YouTube video as MP4 |
+| `./kuraku hls <URL>` | Download a finished HLS stream as MP4 |
+| `./kuraku file <URL>` | Save a direct file unchanged |
+| `./kuraku extract <URL>` | Open a webpage in Chrome and choose captured media |
+| `./kuraku --help` | Show available commands and options |
 
 Replace the example URLs with your own links.
 
 ```sh
 # Open the desktop app
-./javit_dl gui
+./kuraku gui
 
 # Automatically detect the download type
-./javit_dl 'https://youtu.be/jNQXAC9IVRw' -o youtube.mp4
+./kuraku 'https://youtu.be/jNQXAC9IVRw' -o youtube.mp4
 
 # Explicit YouTube download
-./javit_dl youtube 'https://youtu.be/jNQXAC9IVRw' -o youtube.mp4
+./kuraku youtube 'https://youtu.be/jNQXAC9IVRw' -o youtube.mp4
 
 # HLS stream: automatically select the highest-bandwidth quality
-./javit_dl hls 'https://example.com/master.m3u8' -o movie.mp4 --auto
+./kuraku hls 'https://example.com/master.m3u8' -o movie.mp4 --auto
 
 # Direct file
-./javit_dl file 'https://example.com/video.mp4' -o video.mp4
+./kuraku file 'https://example.com/video.mp4' -o video.mp4
 
 # Webpage: play the video in Chrome, then enter a media number in the terminal
-./javit_dl extract 'https://example.com/watch' -o movie.mp4 --auto
+./kuraku extract 'https://example.com/watch' -o movie.mp4 --auto
 ```
 
 Passing a URL without a command automatically detects YouTube, HLS, or a direct file. For webpages, use `extract`; automatic mode may otherwise save the page's HTML.
@@ -135,7 +141,7 @@ Passing a URL without a command automatically detects YouTube, HLS, or a direct 
 
 Options apply to the relevant download mode. `gui` also accepts these options to prefill its form, plus `-u`/`--url` and `--mode`. Put command options after the command name. `--auto` selects HLS quality; extracted media must still be selected manually. Omit `--auto` to choose HLS quality yourself.
 
-Add `--help` to any command, for example `./javit_dl youtube --help` or `./javit_dl extract --help`, for its available options. Press **Ctrl+C** to cancel.
+Add `--help` to any command, for example `./kuraku youtube --help` or `./kuraku extract --help`, for its available options. Press **Ctrl+C** to cancel.
 
 ## Things to know
 

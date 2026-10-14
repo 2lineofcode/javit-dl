@@ -23,7 +23,7 @@ func Run(ctx context.Context, assets fs.FS, initial map[string]any) error {
 		return err
 	}
 	err := wails.Run(&options.App{
-		Title: "JavIt Downloader", Width: 600, Height: 500, DisableResize: true,
+		Title: "kuraku-downloader", Width: 600, Height: 500, DisableResize: true,
 		BackgroundColour: options.NewRGB(17, 20, 27), AssetServer: &assetserver.Options{Assets: assets},
 		Mac:  &mac.Options{Appearance: mac.NSAppearanceNameDarkAqua, TitleBar: mac.TitleBarDefault(), DisableZoom: true},
 		Bind: []interface{}{a},

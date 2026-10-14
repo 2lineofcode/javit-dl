@@ -102,7 +102,7 @@ export default function App() {
   const start = (event) => { event.preventDefault(); perform(() => call('Start', request)); };
   const savePath = () => perform(async () => { const path = await call('SavePath', request.out); if (path) set('out', path); });
   return <main>
-    <header><div className="app-icon" aria-hidden="true">↓</div><h1>JavIt Downloader</h1></header>
+    <header><div className="app-icon" aria-hidden="true">↓</div><h1>kuraku-downloader</h1></header>
     <form ref={form} className="card download-form" onSubmit={start}>
       <fieldset disabled={!ready || pending || state.active}>
         <div className="section-heading"><h2>New download</h2><label className="mode"><span className="sr-only">Download mode</span><select value={request.mode} onChange={(e) => set('mode', e.target.value)}>{modes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>

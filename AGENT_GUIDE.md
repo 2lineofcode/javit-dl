@@ -1,10 +1,10 @@
-# JavIt-DL: Agent Integration Guide
+# kuraku-downloader: Agent Integration Guide
 
 This document describes the current application for AI agents and third-party orchestrators. Use the CLI as the integration surface. Examples use placeholder URLs; replace them with the user's source. Recheck command help when upgrading the binary.
 
 ## 1. Integration contract
 
-- Executable: `javit_dl` in `PATH`, or an absolute path to a built binary.
+- Executable: `kuraku` in `PATH`, or an absolute path to a built binary.
 - Interface: process arguments, stdin, stdout, stderr, and process exit status.
 - One CLI invocation handles one download. Run a new process for another job.
 - There is no public HTTP API, MCP server, JSON output mode, standalone capture-only command, or exported SDK. GUI callbacks are internal application code.
@@ -18,7 +18,7 @@ This document describes the current application for AI agents and third-party or
 
 | Operation | Runtime dependencies |
 | --- | --- |
-| Direct file | JavIt-DL binary |
+| Direct file | kuraku-downloader binary |
 | Finished HLS | Binary and FFmpeg in `PATH` |
 | YouTube | Binary, yt-dlp, FFmpeg, and a supported JavaScript runtime such as Deno |
 | Website extraction | Binary and Chrome/Chromium; FFmpeg if the selected media is HLS |
@@ -26,17 +26,17 @@ This document describes the current application for AI agents and third-party or
 
 Native execution is verified on macOS. Do not assume Linux/Windows deployment or a display-free extraction service has been validated.
 
-From a source checkout, `./build.sh` builds the desktop-capable binary. `./install.sh` builds and installs it into `GOBIN` or the first `GOPATH` entry's `bin` directory. Building requires Go 1.27.1+, Node.js/npm, and the platform build tools described in `README.md`. Node.js is not a runtime requirement for the built app. A CLI-only build uses `go build -trimpath -o javit_dl .`.
+From a source checkout, `./build.sh` builds the desktop-capable binary. `./install.sh` builds and installs it into `GOBIN` or the first `GOPATH` entry's `bin` directory. Building requires Go 1.27.1+, Node.js/npm, and the platform build tools described in `README.md`. Node.js is not a runtime requirement for the built app. A CLI-only build uses `go build -trimpath -o kuraku .`.
 
 Discover installed capabilities before executing a job:
 
 ```sh
-javit_dl --help
-javit_dl file --help
-javit_dl hls --help
-javit_dl youtube --help
-javit_dl extract --help
-javit_dl gui --help
+kuraku --help
+kuraku file --help
+kuraku hls --help
+kuraku youtube --help
+kuraku extract --help
+kuraku gui --help
 ```
 
 ## 3. Choose the correct command
@@ -51,13 +51,13 @@ javit_dl gui --help
 
 Automatic detection does not extract media from HTML. Passing a webpage to the default command can save its HTML as the output file. Use `extract` for webpages. Automatic HLS detection reuses the inspected response, including its final URL after redirects; it does not refetch the initial playlist.
 
-Put command flags after the subcommand. These examples assume `/tmp/javit-agent` already exists:
+Put command flags after the subcommand. These examples assume `/tmp/kuraku-agent` already exists:
 
 ```sh
-javit_dl file 'https://example.com/archive.zip' -o /tmp/javit-agent/archive.zip
-javit_dl hls 'https://example.com/master.m3u8' -o /tmp/javit-agent/movie.mp4 --auto --temp /tmp/javit-agent/cache
-javit_dl youtube 'https://www.youtube.com/watch?v=VIDEO_ID' -o /tmp/javit-agent/youtube.mp4
-javit_dl 'https://example.com/media' -o /tmp/javit-agent/movie.mp4 --auto --temp /tmp/javit-agent/cache
+kuraku file 'https://example.com/archive.zip' -o /tmp/kuraku-agent/archive.zip
+kuraku hls 'https://example.com/master.m3u8' -o /tmp/kuraku-agent/movie.mp4 --auto --temp /tmp/kuraku-agent/cache
+kuraku youtube 'https://www.youtube.com/watch?v=VIDEO_ID' -o /tmp/kuraku-agent/youtube.mp4
+kuraku 'https://example.com/media' -o /tmp/kuraku-agent/movie.mp4 --auto --temp /tmp/kuraku-agent/cache
 ```
 
 ### Common flags
@@ -67,7 +67,7 @@ javit_dl 'https://example.com/media' -o /tmp/javit-agent/movie.mp4 --auto --temp
 | `-o`, `--out` | `output.mp4`; output parent must exist | All download commands |
 | `-r`, `--retries` | `3` retries after initial attempt; range `0–10` | All download commands |
 | `--timeout` | `30s`; positive duration; HLS request / YouTube socket timeout; direct file response-header timeout | All download commands |
-| `--user-agent` | `JavIt-DL/2.0`; extract uses the browser's User-Agent | All download commands |
+| `--user-agent` | `kuraku-downloader/2.0`; extract uses the browser's User-Agent | All download commands |
 | `--referer` | Optional source page URL | All download commands |
 | `-c`, `--concurrency` | `8`; range `1–64`; parallel HLS resources | Default, `hls`, `extract` |
 | `--temp`, `--tf` | `m3u8_tmp` relative to working directory; HLS resume cache | Default, `hls`, `extract` |
@@ -79,16 +79,16 @@ There is no arbitrary header, cookie-import, force-overwrite, or assume-yes flag
 
 ```sh
 # Automatic filename from the page title, in the working directory:
-javit_dl extract 'https://example.com/watch' --auto
+kuraku extract 'https://example.com/watch' --auto
 
 # Predictable output path; disables automatic page-title naming:
-javit_dl extract 'https://example.com/watch' -o /tmp/javit-agent/movie.mp4 --auto --temp /tmp/javit-agent/cache
+kuraku extract 'https://example.com/watch' -o /tmp/kuraku-agent/movie.mp4 --auto --temp /tmp/kuraku-agent/cache
 
 # Try background capture, then wait for media selection:
-javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s -o /tmp/javit-agent/movie.mp4 --auto
+kuraku extract 'https://example.com/watch' --headless --capture-duration 20s -o /tmp/kuraku-agent/movie.mp4 --auto
 
 # Click a known custom button in the page or a player iframe during background capture:
-javit_dl extract 'https://example.com/watch' --headless --capture-duration 20s --play-selector '.play-button' -o /tmp/javit-agent/movie.mp4 --auto
+kuraku extract 'https://example.com/watch' --headless --capture-duration 20s --play-selector '.play-button' -o /tmp/kuraku-agent/movie.mp4 --auto
 ```
 
 The orchestrator must keep the process and stdin open, continuously consume output, and follow this sequence:
@@ -106,7 +106,9 @@ Send `list\n` to list current candidates. Send `q\n`, `quit\n`, or `exit\n` to c
 
 Without `--play-selector`, headless mode tries muted native video/audio playback. Custom player initialization can require a real Play-button click. The selector is evaluated once per matching document, including cross-origin player frames and permitted tabs. Use a selector specific to the intended Play button. Retry visibly when that player needs manual interaction.
 
-Extraction uses saved profiles per source hostname, separate from ordinary Chrome. On macOS, profiles live under `~/Library/Application Support/JavIt-DL/browser/<hostname-hash>/`. Serialize extraction jobs for the same hostname/profile to avoid Chrome profile conflicts. These profiles contain session data; do not attach them to job reports.
+Extraction uses saved profiles per source hostname, separate from ordinary Chrome. On macOS, new profiles live under `~/Library/Application Support/kuraku-downloader/browser/<hostname-hash>/`. Existing `JavIt-DL` config/cache folders are reused when the corresponding `kuraku-downloader` folder does not exist, preserving login sessions and GUI download caches. Serialize extraction jobs for the same hostname/profile to avoid Chrome profile conflicts. These profiles contain session data; do not attach them to job reports.
+
+HLS cache keys include the User-Agent. When resuming a pre-rename job that used the old default, pass `--user-agent 'JavIt-DL/2.0'` along with the original URL, cache folder, and other settings. Browser extraction keeps Chrome's User-Agent.
 
 Extra tabs are closed by default, including tabs without an opener. They are resumed before closing so `window.open` does not stall the player; a popup may briefly appear or start a request. Page browser APIs, clicks, and forms remain unchanged so player scripts can initialize normally. Iframes remain available to players. Use `--allow-popups` only when a requested login/player workflow actually needs another tab; allowed pages pause until network capture is installed, including pages without an opener. This setting is not an ad-content blocker.
 
@@ -165,15 +167,15 @@ Unsupported: live HLS playlists, DASH downloads, DRM, HLS variants requiring sep
 
 ## 8. Minimal unattended subprocess example
 
-This Python example covers a known direct file. It closes stdin to avoid waiting on overwrite confirmation, uses an argument array, and gives cancellation a grace period. For extraction, use the interactive workflow in section 4 instead. The deadline is an adapter setting, not a JavIt-DL flag.
+This Python example covers a known direct file. It closes stdin to avoid waiting on overwrite confirmation, uses an argument array, and gives cancellation a grace period. For extraction, use the interactive workflow in section 4 instead. The deadline is an adapter setting, not a kuraku-downloader flag.
 
 ```python
 import signal
 import subprocess
 from pathlib import Path
 
-binary = "/absolute/path/to/javit_dl"
-output = Path("/tmp/javit-agent/archive.zip")
+binary = "/absolute/path/to/kuraku"
+output = Path("/tmp/kuraku-agent/archive.zip")
 output.parent.mkdir(parents=True, exist_ok=True)
 if output.exists() or output.is_symlink():
     raise FileExistsError(output)
@@ -211,8 +213,8 @@ print(output)
 When the third-party agent needs a user to finish the workflow in the desktop app:
 
 ```sh
-javit_dl gui -u 'https://example.com/watch' --mode extract
-javit_dl gui -u 'https://example.com/master.m3u8' --mode hls -o /tmp/javit-agent/movie.mp4 --auto --startdownload
+kuraku gui -u 'https://example.com/watch' --mode extract
+kuraku gui -u 'https://example.com/master.m3u8' --mode hls -o /tmp/kuraku-agent/movie.mp4 --auto --startdownload
 ```
 
 GUI flags prefill the form; `--startdownload` submits it once and requires `-u`/`--url`. GUI extraction still needs media selection in the app. Extraction flags imply `--mode extract` when mode is omitted. GUI HLS auto-quality defaults to on; use `--auto=false` for manual selection. GUI timeout/capture duration values must be whole seconds. GUI extraction uses page-title naming by default; `-o` disables it until the user re-enables it in the form.
@@ -221,4 +223,4 @@ The GUI has one active job and cancellation controls. Its process lifetime is th
 
 ## 10. Results returned by your adapter
 
-Define structured results in the third-party adapter if its caller needs them. These are **adapter-owned**, not native JavIt-DL output fields. A small result can include `status` (`completed`, `failed`, `cancelled`, `needs_user_input`), the verified absolute `output_path` when completed, `exit_code` when available, and a concise `message` with a redacted log reference. Keep capture selection, file publication, and user interaction distinct from a completed download.
+Define structured results in the third-party adapter if its caller needs them. These are **adapter-owned**, not native kuraku-downloader output fields. A small result can include `status` (`completed`, `failed`, `cancelled`, `needs_user_input`), the verified absolute `output_path` when completed, `exit_code` when available, and a concise `message` with a redacted log reference. Keep capture selection, file publication, and user interaction distinct from a completed download.

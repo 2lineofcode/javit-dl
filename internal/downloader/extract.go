@@ -22,6 +22,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"kuraku-downloader/internal/appdata"
+
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/storage"
@@ -90,8 +92,12 @@ func Extract(ctx context.Context, o Options, x ExtractOptions, input io.Reader, 
 	if err != nil {
 		return fmt.Errorf("browser session directory: %w", err)
 	}
+	configDir, err = appdata.Dir(configDir)
+	if err != nil {
+		return fmt.Errorf("browser session directory: %w", err)
+	}
 	site := sha256.Sum256([]byte(strings.ToLower(u.Hostname())))
-	profile := filepath.Join(configDir, "JavIt-DL", "browser", fmt.Sprintf("%x", site))
+	profile := filepath.Join(configDir, "browser", fmt.Sprintf("%x", site))
 	if err := os.MkdirAll(profile, 0700); err != nil {
 		return fmt.Errorf("create browser session: %w", err)
 	}
@@ -528,8 +534,8 @@ func extractedOutput(out, title string, item mediaURL) (string, error) {
 func extractionScript(x ExtractOptions) string {
 	selector, _ := json.Marshal(x.PlaySelector)
 	return fmt.Sprintf(`(() => {
-  if (globalThis.__javitCaptureInstalled) return;
-  globalThis.__javitCaptureInstalled = true;
+  if (globalThis.__kurakuCaptureInstalled) return;
+  globalThis.__kurakuCaptureInstalled = true;
   if (!%t) return;
   const selector = %s;
   let clicked = false;

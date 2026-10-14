@@ -54,6 +54,9 @@ func TestBuildPlatformTags(t *testing.T) {
 			} else if err != nil || !strings.Contains(string(output), "-tags\n"+tc.tags+"\n") {
 				t.Fatalf("build tags: %v, %s", err, output)
 			}
+			if !tc.fail && !strings.Contains(string(output), "-o\nkuraku\n.") {
+				t.Fatalf("CLI binary name: %s", output)
+			}
 		})
 	}
 }

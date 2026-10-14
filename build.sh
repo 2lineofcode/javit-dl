@@ -17,4 +17,4 @@ fi
 npm --prefix frontend ci
 npm --prefix frontend run build
 touch frontend/dist/.gitkeep
-go build -tags "$tags" -trimpath -ldflags '-s -w' -o javit_dl .
+go build -tags "$tags" -trimpath -ldflags '-s -w' -o kuraku .

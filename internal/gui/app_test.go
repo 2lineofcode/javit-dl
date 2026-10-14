@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"javit_dl/internal/cli"
-	"javit_dl/internal/downloader"
+	"kuraku-downloader/internal/cli"
+	"kuraku-downloader/internal/downloader"
 )
 
 func waitJob(t *testing.T, a *App) State {

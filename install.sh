@@ -8,5 +8,5 @@ if [ -z "$bin_dir" ]; then
     bin_dir="${go_path%%:*}/bin"
 fi
 mkdir -p "$bin_dir"
-install -m 755 javit_dl "$bin_dir/javit_dl"
-printf 'Installed %s/javit_dl\n' "$bin_dir"
+install -m 755 kuraku "$bin_dir/kuraku"
+printf 'Installed %s/kuraku\n' "$bin_dir"

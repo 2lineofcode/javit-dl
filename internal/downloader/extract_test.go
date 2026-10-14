@@ -65,8 +65,8 @@ func TestMediaCapture(t *testing.T) {
 
 // Opt in to the real-browser regression; it uses only a local server and headless Chrome.
 func TestExtractBrowser(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -155,8 +155,8 @@ func (w *captureOutput) Write(p []byte) (int, error) {
 }
 
 func TestExtractHeadless(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	browserPath := isolateExtractProfile(t)
 	for _, tc := range []struct {
@@ -254,8 +254,8 @@ func TestExtractHeadless(t *testing.T) {
 
 // Local verification handoff only: this does not solve a real Cloudflare challenge.
 func TestExtractSavedSession(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	browserPath := isolateExtractProfile(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -329,8 +329,8 @@ func TestExtractSavedSession(t *testing.T) {
 }
 
 func TestExtractHeadlessVisibleRetry(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	browserPath := isolateExtractProfile(t)
 	for _, mode := range []string{"download-403", "empty-capture", "quit"} {
@@ -473,8 +473,8 @@ func TestExtractionPopup(t *testing.T) {
 }
 
 func TestExtractPopups(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	for _, allow := range []bool{false, true} {
 		t.Run(fmt.Sprint(allow), func(t *testing.T) {
@@ -563,8 +563,8 @@ func TestExtractPopups(t *testing.T) {
 }
 
 func TestExtractEarlyCrossOriginHLS(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	for _, nested := range []bool{false, true} {
 		t.Run(fmt.Sprintf("nested=%v", nested), func(t *testing.T) {
@@ -626,8 +626,8 @@ func TestExtractEarlyCrossOriginHLS(t *testing.T) {
 }
 
 func TestExtractStartupPagesAndFramePlayback(t *testing.T) {
-	if os.Getenv("JAVIT_DL_BROWSER_TEST") == "" {
-		t.Skip("set JAVIT_DL_BROWSER_TEST=1 to run Chrome extraction")
+	if os.Getenv("KURAKU_BROWSER_TEST") == "" {
+		t.Skip("set KURAKU_BROWSER_TEST=1 to run Chrome extraction")
 	}
 	for _, mode := range []string{"new-tab", "cross-origin-native", "cross-origin-selector"} {
 		t.Run(mode, func(t *testing.T) {

@@ -107,6 +107,10 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 	if err != nil {
 		return errors.New("ffmpeg is required for HLS; install it and add it to PATH")
 	}
+	inputArgs, err := ffmpegHLSOptions(ctx, ffmpeg)
+	if err != nil {
+		return err
+	}
 	uri := d.URL
 	var body string
 	var lines []string
@@ -205,9 +209,9 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 		fmt.Fprintln(d.progress, "Remuxing to MP4...")
 		// All network resources have been validated and saved. FFmpeg only reads this job's
 		// local playlist, handles AES sequence IVs/key rotation and fMP4, then remuxes to MP4.
-		cmd := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "warning", "-xerror", "-y",
-			"-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL", "-allowed_segment_extensions", "ALL", "-extension_picky", "0",
-			"-i", manifest, "-map", "0:v?", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", f.Name())
+		args := append([]string{"-nostdin", "-hide_banner", "-loglevel", "warning", "-xerror", "-y"}, inputArgs...)
+		args = append(args, "-i", manifest, "-map", "0:v?", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", f.Name())
+		cmd := exec.CommandContext(ctx, ffmpeg, args...)
 		cmd.Stderr = stderr
 		if err := cmd.Run(); err != nil {
 			if ctx.Err() != nil {
@@ -231,4 +235,22 @@ func (d *downloader) downloadHLS(ctx context.Context, input io.Reader, stderr io
 		fmt.Fprintf(stderr, "Downloaded successfully; cache cleanup failed: %v\n", err)
 	}
 	return nil
+}
+
+func ffmpegHLSOptions(ctx context.Context, ffmpeg string) ([]string, error) {
+	help, err := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-h", "demuxer=hls").Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("inspect ffmpeg HLS options: %w", err)
+	}
+	args := []string{"-protocol_whitelist", "file,crypto", "-allowed_extensions", "ALL"}
+	// These options were added separately and may be backported by distributions.
+	for _, option := range []struct{ name, value string }{{"allowed_segment_extensions", "ALL"}, {"extension_picky", "0"}} {
+		if strings.Contains(string(help), "-"+option.name+" ") {
+			args = append(args, "-"+option.name, option.value)
+		}
+	}
+	return args, nil
 }

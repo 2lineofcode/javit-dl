@@ -43,6 +43,26 @@ Keep that folder in your `PATH`. Plain `go install` rebuilds without the desktop
 
 For a terminal-only build, use `go build -trimpath -o javit_dl .` instead.
 
+## Setup (Linux)
+
+Building requires **Go 1.27.1+** and **Node.js 20.19+ or 22.12+** (Node.js 24 is used in CI). For the desktop app, install GTK3 and WebKitGTK development libraries. On Ubuntu 22.04/24.04 or Debian with WebKitGTK 4.1:
+
+```sh
+sudo apt update
+sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev ffmpeg
+./build.sh
+./javit_dl gui
+```
+
+`build.sh` detects WebKitGTK 4.1 and adds Wails' `webkit2_41` build tag automatically; WebKitGTK 4.0 is also supported when 4.1 is unavailable. `./install.sh` uses the same build. Other distributions need the equivalent GTK3/WebKitGTK packages; see the [Wails installation guide](https://wails.io/docs/gettingstarted/installation/).
+
+Install Chrome/Chromium for browser extraction, and yt-dlp plus a supported JavaScript runtime such as Deno for YouTube downloads. Keep these executables in `PATH`, or pass `--browser` for Chrome/Chromium. The desktop app and visible extraction browser require a graphical session. A terminal-only build does not require GTK/WebKitGTK:
+
+```sh
+go build -trimpath -o javit_dl .
+./javit_dl --help
+```
+
 ## Desktop usage
 
 1. Paste a YouTube, HLS, or direct-file URL. For a webpage, choose **Extract from website**.
@@ -124,7 +144,7 @@ Add `--help` to any command, for example `./javit_dl youtube --help` or `./javit
 - **Resume:** Retry HLS with the same URL, settings, and resume folder. Changed playlists or expiring links may require a fresh download. Direct files and YouTube downloads restart from the beginning.
 - **Supported sources:** HLS streams must be finished. Live HLS, DASH, DRM, and HLS with separate audio tracks are unsupported. YouTube downloads cover one video at a time, with H.264 video and AAC audio available; playlists and channels are unsupported.
 - **Website access:** Login or verification may need to be completed in the extraction browser. Saved sessions are separate from your regular Chrome profile. Some sites still block downloads; extraction does not bypass access restrictions or supply login cookies to YouTube downloads.
-- **Platforms:** Native execution is verified on macOS only. Windows and Linux builds require the dependencies described in the [Wails installation guide](https://wails.io/docs/gettingstarted/installation/).
+- **Platforms:** CI checks macOS and Ubuntu 22.04/24.04, including desktop builds and HLS media integration tests. Windows execution is not verified.
 
 ## Development checks
 

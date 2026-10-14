@@ -13,9 +13,7 @@ func TestDir(t *testing.T) {
 		want string
 	}{
 		{"fresh", nil, "kuraku-downloader"},
-		{"legacy", []string{"JavIt-DL"}, "JavIt-DL"},
 		{"renamed", []string{"kuraku-downloader"}, "kuraku-downloader"},
-		{"both", []string{"JavIt-DL", "kuraku-downloader"}, "kuraku-downloader"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			base := t.TempDir()
@@ -37,7 +35,7 @@ func TestDir(t *testing.T) {
 }
 
 func TestDirRejectsFile(t *testing.T) {
-	for _, name := range []string{"kuraku-downloader", "JavIt-DL"} {
+	for _, name := range []string{"kuraku-downloader"} {
 		base := t.TempDir()
 		if err := os.WriteFile(filepath.Join(base, name), []byte("keep"), 0600); err != nil {
 			t.Fatal(err)

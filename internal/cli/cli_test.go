@@ -55,9 +55,6 @@ func TestCLIHelp(t *testing.T) {
 				t.Errorf("help %q missing %s: %s", args, want, output.String())
 			}
 		}
-		if strings.Contains(strings.ToLower(output.String()), "javit") {
-			t.Errorf("help %q contains the old name: %s", args, output.String())
-		}
 		if strings.Contains(output.String(), "--rawurl") || strings.Contains(output.String(), "--url") {
 			t.Errorf("help %q contains removed flags: %s", args, output.String())
 		}

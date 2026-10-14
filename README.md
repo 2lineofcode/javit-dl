@@ -43,9 +43,7 @@ kuraku gui
 
 Keep that folder in your `PATH`. Plain `go install` rebuilds without the desktop build tag.
 
-Upgrading from JavIt-DL: run `./install.sh`, then update scripts or aliases that invoke `javit_dl` to use `kuraku`. Existing browser sessions and GUI download caches keep using their legacy `JavIt-DL` folders when present; fresh installations use `kuraku-downloader` under the system config/cache folders. If both folders exist, `kuraku-downloader` takes precedence. Existing files and old binaries are not removed.
-
-The default HTTP User-Agent is now `kuraku-downloader/2.0`. To resume an old HLS job that used the previous default, add `--user-agent 'JavIt-DL/2.0'` and keep its original URL, cache folder, and other settings (or enter that User-Agent in the GUI). Browser extraction still uses Chrome's User-Agent.
+Browser sessions and download caches use `kuraku-downloader` under the system config/cache folders. The default HTTP User-Agent is `kuraku-downloader/2.0`; browser extraction uses Chrome's User-Agent.
 
 For a terminal-only build, use `go build -trimpath -o kuraku .` instead.
 
